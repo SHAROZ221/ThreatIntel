@@ -1,56 +1,201 @@
 <!DOCTYPE html>
+
 <html>
 <head>
     <title>Threat Intelligence Aggregator</title>
 
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+
+<link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+
+
 </head>
 
 <body class="bg-light">
 
 <div class="container mt-5">
 
-    <h1 class="text-center mb-4">Threat Intelligence Aggregator</h1>
 
-    <div class="row">
+<h1 class="text-center mb-4">
+    Threat Intelligence Aggregator
+</h1>
 
-        <div class="col-md-3">
-            <div class="card">
-                <div class="card-body text-center">
-                    <h5>Total Threats</h5>
-                    <h2>{{ total_threats }}</h2>
-                </div>
+<!-- Dashboard Cards -->
+
+<div class="row">
+
+    <div class="col-md-3">
+        <div class="card">
+            <div class="card-body text-center">
+                <h5>Total Threats</h5>
+                <h2>{{ total_threats }}</h2>
             </div>
         </div>
+    </div>
 
-        <div class="col-md-3">
-            <div class="card">
-                <div class="card-body text-center">
-                    <h5>IPs</h5>
-                    <h2>{{ total_ips }}</h2>
-                </div>
+    <div class="col-md-3">
+        <div class="card">
+            <div class="card-body text-center">
+                <h5>IPs</h5>
+                <h2>{{ total_ips }}</h2>
             </div>
         </div>
+    </div>
 
-        <div class="col-md-3">
-            <div class="card">
-                <div class="card-body text-center">
-                    <h5>Domains</h5>
-                    <h2>{{ total_domains }}</h2>
-                </div>
+    <div class="col-md-3">
+        <div class="card">
+            <div class="card-body text-center">
+                <h5>Domains</h5>
+                <h2>{{ total_domains }}</h2>
             </div>
         </div>
+    </div>
 
-        <div class="col-md-3">
-            <div class="card">
-                <div class="card-body text-center">
-                    <h5>Hashes</h5>
-                    <h2>{{ total_hashes }}</h2>
-                </div>
+    <div class="col-md-3">
+        <div class="card">
+            <div class="card-body text-center">
+                <h5>Hashes</h5>
+                <h2>{{ total_hashes }}</h2>
             </div>
         </div>
+    </div>
+
+</div>
+
+<!-- IOC Search -->
+
+<div class="card mt-4">
+    <div class="card-body">
+
+        <h3>IOC Search</h3>
+
+        <form method="POST">
+
+            <div class="row">
+
+                <div class="col-md-3">
+                    <select name="filter_type" class="form-select">
+                        <option value="All">All</option>
+                        <option value="IP">IP</option>
+                        <option value="Domain">Domain</option>
+                        <option value="Hash">Hash</option>
+                    </select>
+                </div>
+
+                <div class="col-md-7">
+                    <input
+                        type="text"
+                        name="indicator"
+                        class="form-control"
+                        placeholder="Enter IP, Domain, or Hash"
+                        required>
+                </div>
+
+                <div class="col-md-2">
+                    <button type="submit" class="btn btn-primary w-100">
+                        Search
+                    </button>
+                </div>
+
+            </div>
+
+        </form>
 
     </div>
+</div>
+
+<!-- Search Result -->
+
+{% if result == "NOT_FOUND" %}
+
+<div class="alert alert-danger mt-4">
+    ❌ No Threat Found For This IOC
+</div>
+
+{% elif result %}
+        <h3>Threat Result</h3>
+
+        <table class="table">
+
+            <tr>
+                <th>Indicator</th>
+                <td>{{ result[1] }}</td>
+            </tr>
+
+            <tr>
+                <th>Type</th>
+                <td>{{ result[2] }}</td>
+            </tr>
+
+            <tr>
+                <th>Category</th>
+                <td>{{ result[3] }}</td>
+            </tr>
+
+            <tr>
+                <th>Risk Score</th>
+                <td>{{ result[4] }}</td>
+            </tr>
+
+            <tr>
+                <th>Status</th>
+                <td>
+                    {% if result[4] >= 80 %}
+                        <span class="badge bg-danger">HIGH RISK</span>
+                    {% elif result[4] >= 50 %}
+                        <span class="badge bg-warning text-dark">MEDIUM RISK</span>
+                    {% else %}
+                        <span class="badge bg-success">LOW RISK</span>
+                    {% endif %}
+                </td>
+            </tr>
+
+        </table>
+
+    </div>
+</div>
+
+{% endif %}
+
+<!-- Recent Threats -->
+
+<div class="card mt-4">
+    <div class="card-body">
+
+        <h3>Recent Threats</h3>
+
+        <table class="table table-striped">
+
+            <thead>
+                <tr>
+                    <th>ID</th>
+                    <th>Indicator</th>
+                    <th>Type</th>
+                    <th>Category</th>
+                    <th>Risk Score</th>
+                </tr>
+            </thead>
+
+            <tbody>
+
+                {% for threat in recent_threats %}
+
+                <tr>
+                    <td>{{ threat[0] }}</td>
+                    <td>{{ threat[1] }}</td>
+                    <td>{{ threat[2] }}</td>
+                    <td>{{ threat[3] }}</td>
+                    <td>{{ threat[4] }}</td>
+                </tr>
+
+                {% endfor %}
+
+            </tbody>
+
+        </table>
+
+    </div>
+</div>
+```
 
 </div>
 

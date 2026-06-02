@@ -11,6 +11,7 @@ def home():
     conn = sqlite3.connect("threats.db")
     cursor = conn.cursor()
 
+    # Dashboard Statistics
     cursor.execute("SELECT COUNT(*) FROM threats")
     total_threats = cursor.fetchone()[0]
 
@@ -23,15 +24,31 @@ def home():
     cursor.execute("SELECT COUNT(*) FROM threats WHERE type='Hash'")
     total_hashes = cursor.fetchone()[0]
 
-    if request.method == "POST":
-        indicator = request.form["indicator"]
+    # Recent Threats
+    cursor.execute("SELECT * FROM threats ORDER BY id DESC")
+    recent_threats = cursor.fetchall()
 
-        cursor.execute(
-            "SELECT * FROM threats WHERE indicator=?",
-            (indicator,)
-        )
+    # IOC Search
+    if request.method == "POST":
+
+        indicator = request.form["indicator"]
+        filter_type = request.form["filter_type"]
+
+        if filter_type == "All":
+            cursor.execute(
+                "SELECT * FROM threats WHERE indicator=?",
+                (indicator,)
+            )
+        else:
+            cursor.execute(
+                "SELECT * FROM threats WHERE indicator=? AND type=?",
+                (indicator, filter_type)
+            )
 
         result = cursor.fetchone()
+
+        if result is None:
+            result = "NOT_FOUND"
 
     conn.close()
 
@@ -41,7 +58,8 @@ def home():
         total_threats=total_threats,
         total_ips=total_ips,
         total_domains=total_domains,
-        total_hashes=total_hashes
+        total_hashes=total_hashes,
+        recent_threats=recent_threats
     )
 
 if __name__ == "__main__":
