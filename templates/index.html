@@ -155,7 +155,70 @@
 </div>
 
 {% endif %}
+<div class="card mt-4">
+    <div class="card-body">
 
+        <h3>Add New Threat</h3>
+
+        <form method="POST">
+
+            <div class="row">
+
+                <div class="col-md-3">
+                    <input
+                        type="text"
+                        name="new_indicator"
+                        class="form-control"
+                        placeholder="Indicator"
+                        required>
+                </div>
+
+                <div class="col-md-2">
+                    <select
+                        name="new_type"
+                        class="form-select">
+
+                        <option value="IP">IP</option>
+                        <option value="Domain">Domain</option>
+                        <option value="Hash">Hash</option>
+
+                    </select>
+                </div>
+
+                <div class="col-md-3">
+                    <input
+                        type="text"
+                        name="new_category"
+                        class="form-control"
+                        placeholder="Category"
+                        required>
+                </div>
+
+                <div class="col-md-2">
+                    <input
+                        type="number"
+                        name="new_risk"
+                        class="form-control"
+                        placeholder="Risk Score"
+                        min="0"
+                        max="100"
+                        required>
+                </div>
+
+                <div class="col-md-2">
+                    <button
+                        type="submit"
+                        class="btn btn-success w-100">
+                        Add Threat
+                    </button>
+                </div>
+
+            </div>
+
+        </form>
+
+    </div>
+</div>
 <!-- Recent Threats -->
 
 <div class="card mt-4">
@@ -179,15 +242,36 @@
 
                 {% for threat in recent_threats %}
 
-                <tr>
-                    <td>{{ threat[0] }}</td>
-                    <td>{{ threat[1] }}</td>
-                    <td>{{ threat[2] }}</td>
-                    <td>{{ threat[3] }}</td>
-                    <td>{{ threat[4] }}</td>
-                </tr>
+<tr>
+    <td>{{ threat[0] }}</td>
+    <td>{{ threat[1] }}</td>
+    <td>{{ threat[2] }}</td>
+    <td>{{ threat[3] }}</td>
 
-                {% endfor %}
+    <td>
+
+        {% if threat[4] >= 80 %}
+            <span class="badge bg-danger">
+                HIGH ({{ threat[4] }})
+            </span>
+
+        {% elif threat[4] >= 50 %}
+            <span class="badge bg-warning text-dark">
+                MEDIUM ({{ threat[4] }})
+            </span>
+
+        {% else %}
+            <span class="badge bg-success">
+                LOW ({{ threat[4] }})
+            </span>
+
+        {% endif %}
+
+    </td>
+
+</tr>
+
+{% endfor %}
 
             </tbody>
 

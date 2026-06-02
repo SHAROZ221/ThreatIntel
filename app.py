@@ -28,27 +28,59 @@ def home():
     cursor.execute("SELECT * FROM threats ORDER BY id DESC")
     recent_threats = cursor.fetchall()
 
-    # IOC Search
+    # Handle Forms
     if request.method == "POST":
 
-        indicator = request.form["indicator"]
-        filter_type = request.form["filter_type"]
+        # Add New Threat Form
+        if "new_indicator" in request.form:
 
-        if filter_type == "All":
+            new_indicator = request.form["new_indicator"]
+            new_type = request.form["new_type"]
+            new_category = request.form["new_category"]
+            new_risk = request.form["new_risk"]
+
             cursor.execute(
-                "SELECT * FROM threats WHERE indicator=?",
-                (indicator,)
-            )
-        else:
-            cursor.execute(
-                "SELECT * FROM threats WHERE indicator=? AND type=?",
-                (indicator, filter_type)
+                """
+                INSERT INTO threats
+                (indicator, type, category, risk_score)
+                VALUES (?, ?, ?, ?)
+                """,
+                (new_indicator, new_type, new_category, new_risk)
             )
 
-        result = cursor.fetchone()
+            conn.commit()
 
-        if result is None:
-            result = "NOT_FOUND"
+            # Refresh threat list after insert
+            cursor.execute("SELECT * FROM threats ORDER BY id DESC")
+            recent_threats = cursor.fetchall()
+
+            cursor.execute("SELECT COUNT(*) FROM threats")
+            total_threats = cursor.fetchone()[0]
+
+        # Search Form
+        elif "indicator" in request.form:
+
+            indicator = request.form["indicator"]
+            filter_type = request.form["filter_type"]
+
+            if filter_type == "All":
+
+                cursor.execute(
+                    "SELECT * FROM threats WHERE indicator=?",
+                    (indicator,)
+                )
+
+            else:
+
+                cursor.execute(
+                    "SELECT * FROM threats WHERE indicator=? AND type=?",
+                    (indicator, filter_type)
+                )
+
+            result = cursor.fetchone()
+
+            if result is None:
+                result = "NOT_FOUND"
 
     conn.close()
 
