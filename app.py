@@ -1,12 +1,58 @@
 from flask import Flask, render_template, request, redirect
 import sqlite3
+import requests
+import os
+from dotenv import load_dotenv
+print("APP STARTED")
+
+load_dotenv()
 
 app = Flask(__name__)
+
+API_KEY = os.environ.get("ABUSEIPDB_API_KEY")
+
+
+def check_ip_abuseipdb(ip):
+    url = "https://api.abuseipdb.com/api/v2/check"
+
+    headers = {
+        "Accept": "application/json",
+        "Key": API_KEY
+    }
+
+    params = {
+        "ipAddress": ip,
+        "maxAgeInDays": "90"
+    }
+
+    try:
+        response = requests.get(
+            url,
+            headers=headers,
+            params=params,
+            timeout=15
+        )
+
+        print("Status:", response.status_code)
+        print("Response:", response.text)
+
+        if response.status_code == 200:
+            return response.json()["data"]
+
+        return None
+
+    except Exception as e:
+        print("AbuseIPDB Error:", e)
+        return None
+
 
 @app.route("/", methods=["GET", "POST"])
 def home():
 
+    print("HOME FUNCTION CALLED")
+
     result = None
+    abuse_data = None
 
     conn = sqlite3.connect("threats.db")
     cursor = conn.cursor()
@@ -28,7 +74,6 @@ def home():
     cursor.execute("SELECT * FROM threats ORDER BY id DESC")
     recent_threats = cursor.fetchall()
 
-        # Handle Forms
     if request.method == "POST":
 
         # Delete Threat
@@ -46,7 +91,7 @@ def home():
             cursor.execute("SELECT * FROM threats ORDER BY id DESC")
             recent_threats = cursor.fetchall()
 
-        # Add New Threat Form
+        # Add New Threat
         elif "new_indicator" in request.form:
 
             new_indicator = request.form["new_indicator"]
@@ -60,7 +105,12 @@ def home():
                 (indicator, type, category, risk_score)
                 VALUES (?, ?, ?, ?)
                 """,
-                (new_indicator, new_type, new_category, new_risk)
+                (
+                    new_indicator,
+                    new_type,
+                    new_category,
+                    new_risk
+                )
             )
 
             conn.commit()
@@ -71,8 +121,10 @@ def home():
             cursor.execute("SELECT COUNT(*) FROM threats")
             total_threats = cursor.fetchone()[0]
 
-        # Search Form
+        # IOC Search
         elif "indicator" in request.form:
+
+            print("SEARCH BUTTON PRESSED")
 
             indicator = request.form["indicator"]
             filter_type = request.form["filter_type"]
@@ -87,11 +139,21 @@ def home():
             else:
 
                 cursor.execute(
-                    "SELECT * FROM threats WHERE indicator=? AND type=?",
+                    """
+                    SELECT * FROM threats
+                    WHERE indicator=? AND type=?
+                    """,
                     (indicator, filter_type)
                 )
 
             result = cursor.fetchone()
+
+            # AbuseIPDB Lookup
+            if filter_type in ("All", "IP"):
+
+                abuse_data = check_ip_abuseipdb(indicator)
+
+                print("ABUSE DATA =", abuse_data)
 
             if result is None:
                 result = "NOT_FOUND"
@@ -101,12 +163,15 @@ def home():
     return render_template(
         "index.html",
         result=result,
+        abuse_data=abuse_data,
         total_threats=total_threats,
         total_ips=total_ips,
         total_domains=total_domains,
         total_hashes=total_hashes,
         recent_threats=recent_threats
     )
+
+
 @app.route("/edit/<int:threat_id>", methods=["GET", "POST"])
 def edit_threat(threat_id):
 
@@ -153,5 +218,7 @@ def edit_threat(threat_id):
         "edit.html",
         threat=threat
     )
+
+
 if __name__ == "__main__":
-    app.run(debug=True)
+    app.run(debug=False)
