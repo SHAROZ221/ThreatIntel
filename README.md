@@ -8,7 +8,7 @@
 ![Status](https://img.shields.io/badge/Status-Active-00ff88?style=flat-square)
 ![Type](https://img.shields.io/badge/Type-Threat%20Intel%20%2F%20OSINT-red?style=flat-square)
 
-*A Python-based threat intelligence platform that aggregates IOCs, queries live reputation APIs, and provides a web dashboard for searching, adding, and managing threat indicators — built for SOC analyst workflows.*
+*A Python-based threat intelligence platform that aggregates IOCs, queries live reputation APIs, and provides a web dashboard for searching, adding, managing, and exporting threat indicators — built for SOC analyst workflows.*
 
 ---
 
@@ -37,9 +37,12 @@ Analyst submits IOC (IP / Domain / Hash)
             │
             ▼
     Store result ──► Display enriched intelligence
+            │
+            ▼
+    Export ──► Download full IOC list as CSV
 ```
 
-All IOCs are stored with a type, category, and risk score. The dashboard shows live statistics and lets analysts add, search, or delete indicators.
+All IOCs are stored with a type, category, and risk score. The dashboard shows live statistics and lets analysts add, search, delete, or export indicators.
 
 ---
 
@@ -58,8 +61,8 @@ All IOCs are stored with a type, category, and risk score. The dashboard shows l
 **1. Clone the repository**
 
 ```bash
-git clone https://github.com/SHAROZ221/threat-intelligence-aggregator.git
-cd threat-intelligence-aggregator
+git clone https://github.com/SHAROZ221/ThreatIntel.git
+cd ThreatIntel
 ```
 
 **2. Install dependencies**
@@ -113,20 +116,46 @@ The web dashboard provides:
 - **Add new threats** — submit indicator, type, category, and risk score
 - **Delete indicators** — remove resolved or false-positive entries
 - **Recent threats table** — full IOC list ordered by most recently added
+- **IOC type chart** — donut chart showing live breakdown of IP / Domain / Hash counts
+- **Risk distribution chart** — bar chart showing how many IOCs fall in Low / Medium / Critical range
+- **Export to CSV** — download the full IOC list as a `.csv` file with one click
+
+---
+
+## 📤 Export Feature
+
+The dashboard includes a **Export CSV** button available in two places — the top navigation bar and next to the threats table header.
+
+Clicking it instantly downloads a file named `threatintel-iocs-YYYY-MM-DD.csv` containing all current indicators in the following format:
+
+```
+id,indicator,type,category,risk_score
+1,"185.220.101.45",IP,C2 Server,92
+2,"evil-phish-domain.xyz",Domain,Phishing,78
+3,"d41d8cd98f00b204e9800998ecf8427e",Hash,Malware,85
+```
+
+This is useful for:
+- Sharing IOC lists with other analysts or teams
+- Importing into SIEM tools like Splunk or Microsoft Sentinel
+- Keeping an offline backup of your threat database
+- Reporting and documentation during incident response
+
+The export runs entirely client-side — no server request needed.
 
 ---
 
 ## 📁 Project Structure
 
 ```
-threat-intelligence-aggregator/
+ThreatIntel/
 ├── app.py           → Flask web server, all routes & dashboard logic
 ├── init_db.py       → Creates the SQLite threats database & schema
 ├── seed_data.py     → Populates DB with sample IOCs for testing
 ├── view_data.py     → CLI utility to inspect database contents
 ├── test.py          → Test suite for core functionality
 ├── templates/
-│   └── index.html   → Web dashboard UI
+│   └── index.html   → Web dashboard UI (with charts and CSV export)
 ├── threats.db       → SQLite IOC database (auto-generated)
 └── .env             → API keys (not committed — see .gitignore)
 ```
@@ -153,7 +182,9 @@ CREATE TABLE threats (
 - **SQLite3** — Lightweight IOC storage (no external DB required)
 - **AbuseIPDB API** — Live IP reputation and abuse score lookups
 - **python-dotenv** — Secure API key management via `.env`
-- **HTML / CSS** — Dashboard frontend
+- **Chart.js** — Live donut and bar charts on the dashboard
+- **Inter & JetBrains Mono** — Clean typography for the dashboard UI
+- **HTML / CSS / JS** — Dashboard frontend with CSV export
 
 ---
 
