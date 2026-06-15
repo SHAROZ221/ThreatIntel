@@ -188,12 +188,4 @@ CREATE TABLE threats (
 
 ---
 
-## 🔐 Security Note
 
-Never commit your `.env` file or expose your API keys. The `.gitignore` is configured to exclude `.env` by default. If you accidentally expose a key, regenerate it immediately at [abuseipdb.com](https://www.abuseipdb.com).
-
----
-
-**Sharoz** · BCA Year 3 · Cybersecurity (SOC Track)
-
-[github.com/SHAROZ221](https://github.com/SHAROZ221)
