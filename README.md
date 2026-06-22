@@ -119,17 +119,24 @@ http://localhost:5000/
 
 ## 📊 Dashboard Features
 
-The web dashboard provides:
+## 📤 Export Feature
 
-- **Live statistics** — total IOC count, breakdown by IP / Domain / Hash
-- **Dual-source IOC enrichment** — AbuseIPDB + VirusTotal results displayed side by side
-- **IOC search** — look up any indicator with optional type filter
-- **Add new threats** — submit indicator, type, category, and risk score
-- **Delete indicators** — remove resolved or false-positive entries
-- **Recent threats table** — full IOC list ordered by most recently added
-- **IOC type chart** — donut chart showing live breakdown of IP / Domain / Hash counts
-- **Export to CSV** — download the full IOC list as a `.csv` file with one click
+The dashboard includes an **Export CSV** button in the navigation bar and next to the threats table.
 
+Clicking it downloads a file named `threatintel-iocs-YYYY-MM-DD.csv`:
+
+```
+id,indicator,type,category,risk_score
+1,"185.220.101.1",IP,Malware,95
+2,"evil-phish-domain.xyz",Domain,Phishing,78
+3,"d41d8cd98f00b204e9800998ecf8427e",Hash,Malware,85
+```
+
+This is useful for:
+- Sharing IOC lists with other analysts or teams
+- Importing into SIEM tools like Splunk or Microsoft Sentinel
+- Keeping an offline backup of your threat database
+- Reporting and documentation during incident response
 ---
 
 ## 📤 Export Feature
