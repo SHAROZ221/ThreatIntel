@@ -5,6 +5,7 @@
 ![Python](https://img.shields.io/badge/Python-3.8+-3776AB?style=flat-square&logo=python&logoColor=white)
 ![Flask](https://img.shields.io/badge/Flask-3.0-000000?style=flat-square&logo=flask&logoColor=white)
 ![AbuseIPDB](https://img.shields.io/badge/API-AbuseIPDB-orange?style=flat-square)
+![VirusTotal](https://img.shields.io/badge/API-VirusTotal-394EFF?style=flat-square)
 ![Status](https://img.shields.io/badge/Status-Active-00ff88?style=flat-square)
 ![Type](https://img.shields.io/badge/Type-Threat%20Intel%20%2F%20OSINT-red?style=flat-square)
 
@@ -16,7 +17,7 @@
 
 In a Security Operations Center, analysts constantly look up **Indicators of Compromise (IOCs)** — malicious IPs, domains, and file hashes — across multiple sources to determine threat risk.
 
-This tool centralises that process. It stores IOCs in a local database, lets you search and filter them instantly, enriches IPs with live **AbuseIPDB** reputation data, and presents everything through a clean web dashboard.
+This tool centralises that process. It stores IOCs in a local database, lets you search and filter them instantly, enriches indicators with live **AbuseIPDB** and **VirusTotal** reputation data simultaneously, and presents everything through a clean web dashboard.
 
 This mirrors real-world SOC tooling like MISP, OpenCTI, and ThreatConnect — but built from scratch in Python.
 
@@ -30,15 +31,21 @@ Analyst submits IOC (IP / Domain / Hash)
             ▼
     Search threats.db ──► Found? ──► Display result + risk score
             │
-         Not found?
-            │
             ▼
-    AbuseIPDB API Lookup (for IPs)
-            │
-            ▼
-    Store result ──► Display enriched intelligence
-            │
-            ▼
+    Dual API Enrichment (based on IOC type)
+       │                        │
+       ▼                        ▼
+AbuseIPDB Lookup          VirusTotal Lookup
+(IPs only)                (IP / Domain / Hash)
+  abuse score               malicious engines
+  report count              suspicious count
+  country origin            total engine count
+       │                        │
+       └───────────┬────────────┘
+                   ▼
+    Display unified intelligence report
+                   │
+                   ▼
     Export ──► Download full IOC list as CSV
 ```
 
@@ -48,11 +55,11 @@ All IOCs are stored with a type, category, and risk score. The dashboard shows l
 
 ## 🧩 IOC Types Supported
 
-| Type | Example | Use Case |
-|------|---------|----------|
-| IP Address | `192.168.1.1` | Malicious host, C2 server |
-| Domain | `evil-domain.xyz` | Phishing, malware delivery |
-| File Hash | `d41d8cd98f00b204...` | Malware sample identification |
+| Type | Example | AbuseIPDB | VirusTotal |
+|------|---------|-----------|------------|
+| IP Address | `185.220.101.1` | ✅ | ✅ |
+| Domain | `evil-domain.xyz` | ❌ | ✅ |
+| File Hash | `d41d8cd98f00b204...` | ❌ | ✅ |
 
 ---
 
@@ -71,15 +78,18 @@ cd ThreatIntel
 pip install -r requirements.txt
 ```
 
-**3. Set up your AbuseIPDB API key**
+**3. Set up your API keys**
 
 Create a `.env` file in the root directory:
 
 ```
-ABUSEIPDB_API_KEY=your_api_key_here
+ABUSEIPDB_API_KEY=your_abuseipdb_key_here
+VIRUSTOTAL_API_KEY=your_virustotal_key_here
 ```
 
-Get a free API key at [abuseipdb.com](https://www.abuseipdb.com/register)
+Get free API keys at:
+- [abuseipdb.com](https://www.abuseipdb.com/register)
+- [virustotal.com](https://www.virustotal.com)
 
 **4. Initialise the database**
 
@@ -112,12 +122,12 @@ http://localhost:5000/
 The web dashboard provides:
 
 - **Live statistics** — total IOC count, breakdown by IP / Domain / Hash
+- **Dual-source IOC enrichment** — AbuseIPDB + VirusTotal results displayed side by side
 - **IOC search** — look up any indicator with optional type filter
 - **Add new threats** — submit indicator, type, category, and risk score
 - **Delete indicators** — remove resolved or false-positive entries
 - **Recent threats table** — full IOC list ordered by most recently added
 - **IOC type chart** — donut chart showing live breakdown of IP / Domain / Hash counts
-- **Risk distribution chart** — bar chart showing how many IOCs fall in Low / Medium / Critical range
 - **Export to CSV** — download the full IOC list as a `.csv` file with one click
 
 ---
@@ -130,7 +140,7 @@ Clicking it instantly downloads a file named `threatintel-iocs-YYYY-MM-DD.csv` c
 
 ```
 id,indicator,type,category,risk_score
-1,"185.220.101.45",IP,C2 Server,92
+1,"185.220.101.1",IP,Malware,95
 2,"evil-phish-domain.xyz",Domain,Phishing,78
 3,"d41d8cd98f00b204e9800998ecf8427e",Hash,Malware,85
 ```
@@ -141,21 +151,20 @@ This is useful for:
 - Keeping an offline backup of your threat database
 - Reporting and documentation during incident response
 
-The export runs entirely client-side — no server request needed.
-
 ---
 
 ## 📁 Project Structure
 
 ```
 ThreatIntel/
-├── app.py           → Flask web server, all routes & dashboard logic
+├── app.py           → Flask web server, all routes, AbuseIPDB + VirusTotal logic
 ├── init_db.py       → Creates the SQLite threats database & schema
 ├── seed_data.py     → Populates DB with sample IOCs for testing
 ├── view_data.py     → CLI utility to inspect database contents
 ├── test.py          → Test suite for core functionality
 ├── templates/
-│   └── index.html   → Web dashboard UI (with charts and CSV export)
+│   ├── index.html   → Main web dashboard UI (charts, search, enrichment)
+│   └── edit.html    → Edit IOC form
 ├── threats.db       → SQLite IOC database (auto-generated)
 └── .env             → API keys (not committed — see .gitignore)
 ```
@@ -180,12 +189,10 @@ CREATE TABLE threats (
 
 - **Flask** — Web framework and routing
 - **SQLite3** — Lightweight IOC storage (no external DB required)
-- **AbuseIPDB API** — Live IP reputation and abuse score lookups
+- **AbuseIPDB API** — Live IP reputation, abuse score, report count, and country
+- **VirusTotal API** — Multi-engine malware detection for IPs, domains, and file hashes
 - **python-dotenv** — Secure API key management via `.env`
-- **Chart.js** — Live donut and bar charts on the dashboard
-- **Inter & JetBrains Mono** — Clean typography for the dashboard UI
+- **Chart.js** — Live donut chart on the dashboard
 - **HTML / CSS / JS** — Dashboard frontend with CSV export
 
 ---
-
-
