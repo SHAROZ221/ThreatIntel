@@ -3,9 +3,10 @@ import sqlite3
 import requests
 import csv
 import io
+import re
+import os
 from datetime import date
 from dotenv import load_dotenv
-import os
 
 load_dotenv()
 
@@ -92,6 +93,10 @@ def check_hash_virustotal(file_hash):
         return None
 
 
+def sanitize(value):
+    return re.sub(r'<[^>]*>', '', value.strip())
+
+
 @app.route("/", methods=["GET", "POST"])
 def home():
     result = None
@@ -126,44 +131,56 @@ def home():
             recent_threats = cursor.fetchall()
 
         elif "new_indicator" in request.form:
-            new_indicator = request.form["new_indicator"]
+            new_indicator = sanitize(request.form["new_indicator"])
             new_type = request.form["new_type"]
-            new_category = request.form["new_category"]
-            new_risk = request.form["new_risk"]
-            cursor.execute(
-                "INSERT INTO threats (indicator, type, category, risk_score) VALUES (?, ?, ?, ?)",
-                (new_indicator, new_type, new_category, new_risk)
-            )
-            conn.commit()
+            new_category = sanitize(request.form["new_category"])
+
+            try:
+                new_risk = int(request.form["new_risk"])
+                if not 0 <= new_risk <= 100:
+                    new_risk = 0
+            except ValueError:
+                new_risk = 0
+
+            if new_indicator:
+                cursor.execute(
+                    "INSERT INTO threats (indicator, type, category, risk_score) VALUES (?, ?, ?, ?)",
+                    (new_indicator, new_type, new_category, new_risk)
+                )
+                conn.commit()
+
             cursor.execute("SELECT * FROM threats ORDER BY id DESC")
             recent_threats = cursor.fetchall()
             cursor.execute("SELECT COUNT(*) FROM threats")
             total_threats = cursor.fetchone()[0]
 
         elif "indicator" in request.form:
-            indicator = request.form["indicator"]
+            indicator = sanitize(request.form["indicator"])
             filter_type = request.form["filter_type"]
 
-            if filter_type == "All":
-                cursor.execute("SELECT * FROM threats WHERE indicator=?", (indicator,))
-            else:
-                cursor.execute(
-                    "SELECT * FROM threats WHERE indicator=? AND type=?",
-                    (indicator, filter_type)
-                )
-
-            result = cursor.fetchone()
-
-            if filter_type in ("All", "IP"):
-                abuse_data = check_ip_abuseipdb(indicator)
-                vt_data = check_ip_virustotal(indicator)
-            elif filter_type == "Domain":
-                vt_data = check_domain_virustotal(indicator)
-            elif filter_type == "Hash":
-                vt_data = check_hash_virustotal(indicator)
-
-            if result is None:
+            if not indicator or len(indicator) > 500:
                 result = "NOT_FOUND"
+            else:
+                if filter_type == "All":
+                    cursor.execute("SELECT * FROM threats WHERE indicator=?", (indicator,))
+                else:
+                    cursor.execute(
+                        "SELECT * FROM threats WHERE indicator=? AND type=?",
+                        (indicator, filter_type)
+                    )
+
+                result = cursor.fetchone()
+
+                if filter_type in ("All", "IP"):
+                    abuse_data = check_ip_abuseipdb(indicator)
+                    vt_data = check_ip_virustotal(indicator)
+                elif filter_type == "Domain":
+                    vt_data = check_domain_virustotal(indicator)
+                elif filter_type == "Hash":
+                    vt_data = check_hash_virustotal(indicator)
+
+                if result is None:
+                    result = "NOT_FOUND"
 
     conn.close()
 
@@ -186,10 +203,17 @@ def edit_threat(threat_id):
     cursor = conn.cursor()
 
     if request.method == "POST":
-        indicator = request.form["indicator"]
+        indicator = sanitize(request.form["indicator"])
         threat_type = request.form["type"]
-        category = request.form["category"]
-        risk_score = request.form["risk_score"]
+        category = sanitize(request.form["category"])
+
+        try:
+            risk_score = int(request.form["risk_score"])
+            if not 0 <= risk_score <= 100:
+                risk_score = 0
+        except ValueError:
+            risk_score = 0
+
         cursor.execute(
             "UPDATE threats SET indicator=?, type=?, category=?, risk_score=? WHERE id=?",
             (indicator, threat_type, category, risk_score, threat_id)
