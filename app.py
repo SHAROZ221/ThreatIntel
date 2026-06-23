@@ -1,9 +1,11 @@
-from flask import Flask, render_template, request, redirect
+from flask import Flask, render_template, request, redirect, Response
 import sqlite3
 import requests
-import os
+import csv
+import io
+from datetime import date
 from dotenv import load_dotenv
-print("APP STARTED")
+import os
 
 load_dotenv()
 
@@ -15,33 +17,19 @@ VT_API_KEY = os.environ.get("VIRUSTOTAL_API_KEY")
 
 def check_ip_abuseipdb(ip):
     url = "https://api.abuseipdb.com/api/v2/check"
-
     headers = {
         "Accept": "application/json",
         "Key": API_KEY
     }
-
     params = {
         "ipAddress": ip,
         "maxAgeInDays": "90"
     }
-
     try:
-        response = requests.get(
-            url,
-            headers=headers,
-            params=params,
-            timeout=15
-        )
-
-        print("Status:", response.status_code)
-        print("Response:", response.text)
-
+        response = requests.get(url, headers=headers, params=params, timeout=15)
         if response.status_code == 200:
             return response.json()["data"]
-
         return None
-
     except Exception as e:
         print("AbuseIPDB Error:", e)
         return None
@@ -106,9 +94,6 @@ def check_hash_virustotal(file_hash):
 
 @app.route("/", methods=["GET", "POST"])
 def home():
-
-    print("HOME FUNCTION CALLED")
-
     result = None
     abuse_data = None
     vt_data = None
@@ -116,7 +101,6 @@ def home():
     conn = sqlite3.connect("threats.db")
     cursor = conn.cursor()
 
-    # Dashboard Statistics
     cursor.execute("SELECT COUNT(*) FROM threats")
     total_threats = cursor.fetchone()[0]
 
@@ -129,85 +113,47 @@ def home():
     cursor.execute("SELECT COUNT(*) FROM threats WHERE type='Hash'")
     total_hashes = cursor.fetchone()[0]
 
-    # Recent Threats
     cursor.execute("SELECT * FROM threats ORDER BY id DESC")
     recent_threats = cursor.fetchall()
 
     if request.method == "POST":
 
-        # Delete Threat
         if "delete_id" in request.form:
-
             delete_id = request.form["delete_id"]
-
-            cursor.execute(
-                "DELETE FROM threats WHERE id=?",
-                (delete_id,)
-            )
-
+            cursor.execute("DELETE FROM threats WHERE id=?", (delete_id,))
             conn.commit()
-
             cursor.execute("SELECT * FROM threats ORDER BY id DESC")
             recent_threats = cursor.fetchall()
 
-        # Add New Threat
         elif "new_indicator" in request.form:
-
             new_indicator = request.form["new_indicator"]
             new_type = request.form["new_type"]
             new_category = request.form["new_category"]
             new_risk = request.form["new_risk"]
-
             cursor.execute(
-                """
-                INSERT INTO threats
-                (indicator, type, category, risk_score)
-                VALUES (?, ?, ?, ?)
-                """,
-                (
-                    new_indicator,
-                    new_type,
-                    new_category,
-                    new_risk
-                )
+                "INSERT INTO threats (indicator, type, category, risk_score) VALUES (?, ?, ?, ?)",
+                (new_indicator, new_type, new_category, new_risk)
             )
-
             conn.commit()
-
             cursor.execute("SELECT * FROM threats ORDER BY id DESC")
             recent_threats = cursor.fetchall()
-
             cursor.execute("SELECT COUNT(*) FROM threats")
             total_threats = cursor.fetchone()[0]
 
-        # IOC Search
         elif "indicator" in request.form:
-
-            print("SEARCH BUTTON PRESSED")
-
             indicator = request.form["indicator"]
             filter_type = request.form["filter_type"]
 
             if filter_type == "All":
-
-                cursor.execute(
-                    "SELECT * FROM threats WHERE indicator=?",
-                    (indicator,)
-                )
-
+                cursor.execute("SELECT * FROM threats WHERE indicator=?", (indicator,))
             else:
-
                 cursor.execute(
-                    """
-                    SELECT * FROM threats
-                    WHERE indicator=? AND type=?
-                    """,
+                    "SELECT * FROM threats WHERE indicator=? AND type=?",
                     (indicator, filter_type)
                 )
 
             result = cursor.fetchone()
 
-            # AbuseIPDB + VirusTotal Lookup
             if filter_type in ("All", "IP"):
                 abuse_data = check_ip_abuseipdb(indicator)
                 vt_data = check_ip_virustotal(indicator)
@@ -236,58 +182,31 @@ def home():
 
 @app.route("/edit/<int:threat_id>", methods=["GET", "POST"])
 def edit_threat(threat_id):
-
     conn = sqlite3.connect("threats.db")
     cursor = conn.cursor()
 
     if request.method == "POST":
-
         indicator = request.form["indicator"]
         threat_type = request.form["type"]
         category = request.form["category"]
         risk_score = request.form["risk_score"]
-
         cursor.execute(
-            """
-            UPDATE threats
-            SET indicator=?, type=?, category=?, risk_score=?
-            WHERE id=?
-            """,
-            (
-                indicator,
-                threat_type,
-                category,
-                risk_score,
-                threat_id
-            )
+            "UPDATE threats SET indicator=?, type=?, category=?, risk_score=? WHERE id=?",
+            (indicator, threat_type, category, risk_score, threat_id)
         )
-
         conn.commit()
         conn.close()
-
         return redirect("/")
 
-    cursor.execute(
-        "SELECT * FROM threats WHERE id=?",
-        (threat_id,)
-    )
-
+    cursor.execute("SELECT * FROM threats WHERE id=?", (threat_id,))
     threat = cursor.fetchone()
-
     conn.close()
 
-    return render_template(
-        "edit.html",
-        threat=threat
-    )
+    return render_template("edit.html", threat=threat)
+
 
 @app.route("/export")
 def export_csv():
-    import csv
-    import io
-    from datetime import date
-    from flask import Response
-
     conn = sqlite3.connect("threats.db")
     cursor = conn.cursor()
     cursor.execute("SELECT * FROM threats ORDER BY id DESC")
@@ -307,5 +226,7 @@ def export_csv():
         mimetype="text/csv",
         headers={"Content-Disposition": f"attachment; filename={filename}"}
     )
+
+
 if __name__ == "__main__":
     app.run(debug=False)
