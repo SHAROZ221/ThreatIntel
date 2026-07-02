@@ -1,10 +1,11 @@
-from flask import Flask, render_template, request, redirect, Response
+from flask import Flask, render_template, request, redirect, Response, g
 import sqlite3
 import requests
 import csv
 import io
 import re
 import os
+import html
 from datetime import date
 from dotenv import load_dotenv
 
@@ -14,7 +15,28 @@ app = Flask(__name__)
 
 API_KEY = os.environ.get("ABUSEIPDB_API_KEY")
 VT_API_KEY = os.environ.get("VIRUSTOTAL_API_KEY")
+DATABASE = "threats.db"
 
+
+# ── DATABASE LIFECYCLE MANAGEMENT ───────────────────────────────────────────
+
+def get_db():
+    """Get thread-safe database connection using Flask's request context."""
+    db = getattr(g, '_database', None)
+    if db is None:
+        db = g._database = sqlite3.connect(DATABASE)
+    return db
+
+
+@app.teardown_appcontext
+def close_connection(exception):
+    """Ensure database connection is closed when the request ends."""
+    db = getattr(g, '_database', None)
+    if db is not None:
+        db.close()
+
+
+# ── HELPERS ──────────────────────────────────────────────────────────────────
 
 def check_ip_abuseipdb(ip):
     url = "https://api.abuseipdb.com/api/v2/check"
@@ -94,8 +116,33 @@ def check_hash_virustotal(file_hash):
 
 
 def sanitize(value):
-    return re.sub(r'<[^>]*>', '', value.strip())
+    """Secure sanitization using standard HTML escaping to prevent XSS."""
+    return html.escape(value.strip())
 
+
+def auto_detect_type(indicator):
+    """Automatically detect indicator type using regular expressions."""
+    indicator_clean = indicator.strip()
+    
+    # IPv4 or IPv6 detection
+    is_ip = re.match(r"^(\d{1,3}\.){3}\d{1,3}$", indicator_clean) or ":" in indicator_clean
+    if is_ip:
+        return "IP"
+        
+    # MD5 (32), SHA-1 (40), SHA-256 (64) hex hash detection
+    is_hash = re.match(r"^[a-fA-F0-9]{32}$|^[a-fA-F0-9]{40}$|^[a-fA-F0-9]{64}$", indicator_clean)
+    if is_hash:
+        return "Hash"
+        
+    # Domain detection
+    is_domain = re.match(r"^[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}$", indicator_clean)
+    if is_domain:
+        return "Domain"
+        
+    return None
+
+
+# ── ROUTES ───────────────────────────────────────────────────────────────────
 
 @app.route("/", methods=["GET", "POST"])
 def home():
@@ -103,8 +150,8 @@ def home():
     abuse_data = None
     vt_data = None
 
-    conn = sqlite3.connect("threats.db")
-    cursor = conn.cursor()
+    db = get_db()
+    cursor = db.cursor()
 
     cursor.execute("SELECT COUNT(*) FROM threats")
     total_threats = cursor.fetchone()[0]
@@ -126,7 +173,7 @@ def home():
         if "delete_id" in request.form:
             delete_id = request.form["delete_id"]
             cursor.execute("DELETE FROM threats WHERE id=?", (delete_id,))
-            conn.commit()
+            db.commit()
             cursor.execute("SELECT * FROM threats ORDER BY id DESC")
             recent_threats = cursor.fetchall()
 
@@ -147,7 +194,7 @@ def home():
                     "INSERT INTO threats (indicator, type, category, risk_score) VALUES (?, ?, ?, ?)",
                     (new_indicator, new_type, new_category, new_risk)
                 )
-                conn.commit()
+                db.commit()
 
             cursor.execute("SELECT * FROM threats ORDER BY id DESC")
             recent_threats = cursor.fetchall()
@@ -161,6 +208,9 @@ def home():
             if not indicator or len(indicator) > 500:
                 result = "NOT_FOUND"
             else:
+                detected_type = auto_detect_type(indicator)
+                actual_type = detected_type if detected_type else filter_type
+
                 if filter_type == "All":
                     cursor.execute("SELECT * FROM threats WHERE indicator=?", (indicator,))
                 else:
@@ -171,18 +221,17 @@ def home():
 
                 result = cursor.fetchone()
 
-                if filter_type in ("All", "IP"):
+                # Dispatch queries safely using the auto-detected or filtered type
+                if actual_type == "IP":
                     abuse_data = check_ip_abuseipdb(indicator)
                     vt_data = check_ip_virustotal(indicator)
-                elif filter_type == "Domain":
+                elif actual_type == "Domain":
                     vt_data = check_domain_virustotal(indicator)
-                elif filter_type == "Hash":
+                elif actual_type == "Hash":
                     vt_data = check_hash_virustotal(indicator)
 
                 if result is None:
                     result = "NOT_FOUND"
-
-    conn.close()
 
     return render_template(
         "index.html",
@@ -199,8 +248,8 @@ def home():
 
 @app.route("/edit/<int:threat_id>", methods=["GET", "POST"])
 def edit_threat(threat_id):
-    conn = sqlite3.connect("threats.db")
-    cursor = conn.cursor()
+    db = get_db()
+    cursor = db.cursor()
 
     if request.method == "POST":
         indicator = sanitize(request.form["indicator"])
@@ -218,24 +267,21 @@ def edit_threat(threat_id):
             "UPDATE threats SET indicator=?, type=?, category=?, risk_score=? WHERE id=?",
             (indicator, threat_type, category, risk_score, threat_id)
         )
-        conn.commit()
-        conn.close()
+        db.commit()
         return redirect("/")
 
     cursor.execute("SELECT * FROM threats WHERE id=?", (threat_id,))
     threat = cursor.fetchone()
-    conn.close()
 
     return render_template("edit.html", threat=threat)
 
 
 @app.route("/export")
 def export_csv():
-    conn = sqlite3.connect("threats.db")
-    cursor = conn.cursor()
+    db = get_db()
+    cursor = db.cursor()
     cursor.execute("SELECT * FROM threats ORDER BY id DESC")
     threats = cursor.fetchall()
-    conn.close()
 
     output = io.StringIO()
     writer = csv.writer(output)
@@ -253,4 +299,4 @@ def export_csv():
 
 
 if __name__ == "__main__":
-    app.run(debug=False)
+    app.run(debug=False)
