@@ -1,4 +1,4 @@
-from flask import Flask, render_template, request, redirect, Response, g
+from flask import Flask, render_template, request, redirect, Response, g, url_for, flash
 import sqlite3
 import requests
 import csv
@@ -6,19 +6,47 @@ import io
 import re
 import os
 import html
-from datetime import date
+from datetime import date, datetime
 from dotenv import load_dotenv
+from flask_login import LoginManager, UserMixin, login_user, logout_user, login_required, current_user
+from werkzeug.security import generate_password_hash, check_password_hash
 
 load_dotenv()
 
 app = Flask(__name__)
+app.secret_key = os.environ.get("FLASK_SECRET_KEY", "threat_intel_secret_key_12345")
+
+# Initialize Flask-Login
+login_manager = LoginManager()
+login_manager.login_view = "login"
+login_manager.init_app(app)
 
 API_KEY = os.environ.get("ABUSEIPDB_API_KEY")
 VT_API_KEY = os.environ.get("VIRUSTOTAL_API_KEY")
 DATABASE = "threats.db"
+AUDIT_LOG_FILE = "audit.log"
 
 
-# ── DATABASE LIFECYCLE MANAGEMENT ───────────────────────────────────────────
+# ── DATABASE & USER CLASS ───────────────────────────────────────────────────
+
+class User(UserMixin):
+    def __init__(self, id, username, role):
+        self.id = id
+        self.username = username
+        self.role = role
+
+
+@login_manager.user_loader
+def load_user(user_id):
+    """Load user by ID from the SQLite database."""
+    db = get_db()
+    cursor = db.cursor()
+    cursor.execute("SELECT id, username, role FROM users WHERE id = ?", (user_id,))
+    row = cursor.fetchone()
+    if row:
+        return User(id=row[0], username=row[1], role=row[2])
+    return None
+
 
 def get_db():
     """Get thread-safe database connection using Flask's request context."""
@@ -36,7 +64,22 @@ def close_connection(exception):
         db.close()
 
 
-# ── HELPERS ──────────────────────────────────────────────────────────────────
+# ── HELPERS & CLIENTS ────────────────────────────────────────────────────────
+
+def log_audit(action, indicator=None):
+    """Log user action to audit.log file with timestamp."""
+    username = current_user.username if current_user.is_authenticated else "anonymous"
+    timestamp = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S UTC")
+    log_line = f"[{timestamp}] User: {username} | Action: {action}"
+    if indicator:
+        log_line += f" | Indicator: {indicator}"
+    log_line += "\n"
+    try:
+        with open(AUDIT_LOG_FILE, "a", encoding="utf-8") as f:
+            f.write(log_line)
+    except Exception as e:
+        print("Audit Log Error:", e)
+
 
 def check_ip_abuseipdb(ip):
     url = "https://api.abuseipdb.com/api/v2/check"
@@ -115,6 +158,39 @@ def check_hash_virustotal(file_hash):
         return None
 
 
+def check_otx(indicator, indicator_type):
+    """Query AlienVault OTX Open Threat Exchange general API for reputation pulses."""
+    otx_type_map = {
+        "IP": "IPv4",
+        "Domain": "domain",
+        "Hash": "file"
+    }
+    otx_type = otx_type_map.get(indicator_type)
+    if not otx_type:
+        return None
+
+    url = f"https://otx.alienvault.com/api/v1/indicators/{otx_type}/{indicator}/general"
+    try:
+        response = requests.get(url, timeout=10)
+        if response.status_code == 200:
+            data = response.json()
+            return {
+                "pulse_count": data.get("pulse_info", {}).get("count", 0),
+                "pulses": [
+                    {
+                        "name": p.get("name"),
+                        "description": p.get("description"),
+                        "created": p.get("created")
+                    }
+                    for p in data.get("pulse_info", {}).get("pulses", [])[:5]
+                ]
+            }
+        return None
+    except Exception as e:
+        print("OTX Lookup Error:", e)
+        return None
+
+
 def sanitize(value):
     """Secure sanitization using standard HTML escaping to prevent XSS."""
     return html.escape(value.strip())
@@ -149,6 +225,7 @@ def home():
     result = None
     abuse_data = None
     vt_data = None
+    otx_data = None
 
     db = get_db()
     cursor = db.cursor()
@@ -171,13 +248,29 @@ def home():
     if request.method == "POST":
 
         if "delete_id" in request.form:
+            if not current_user.is_authenticated:
+                flash("Authentication required to delete indicators.")
+                return redirect(url_for("home"))
+            
             delete_id = request.form["delete_id"]
+            
+            # Query indicator first for audit log
+            cursor.execute("SELECT indicator FROM threats WHERE id = ?", (delete_id,))
+            row = cursor.fetchone()
+            deleted_indicator = row[0] if row else str(delete_id)
+
             cursor.execute("DELETE FROM threats WHERE id=?", (delete_id,))
             db.commit()
+            log_audit("DELETE_THREAT", indicator=deleted_indicator)
+            
             cursor.execute("SELECT * FROM threats ORDER BY id DESC")
             recent_threats = cursor.fetchall()
 
         elif "new_indicator" in request.form:
+            if not current_user.is_authenticated:
+                flash("Authentication required to add indicators.")
+                return redirect(url_for("home"))
+
             new_indicator = sanitize(request.form["new_indicator"])
             new_type = request.form["new_type"]
             new_category = sanitize(request.form["new_category"])
@@ -195,6 +288,7 @@ def home():
                     (new_indicator, new_type, new_category, new_risk)
                 )
                 db.commit()
+                log_audit("ADD_THREAT", indicator=new_indicator)
 
             cursor.execute("SELECT * FROM threats ORDER BY id DESC")
             recent_threats = cursor.fetchall()
@@ -225,10 +319,13 @@ def home():
                 if actual_type == "IP":
                     abuse_data = check_ip_abuseipdb(indicator)
                     vt_data = check_ip_virustotal(indicator)
+                    otx_data = check_otx(indicator, "IP")
                 elif actual_type == "Domain":
                     vt_data = check_domain_virustotal(indicator)
+                    otx_data = check_otx(indicator, "Domain")
                 elif actual_type == "Hash":
                     vt_data = check_hash_virustotal(indicator)
+                    otx_data = check_otx(indicator, "Hash")
 
                 if result is None:
                     result = "NOT_FOUND"
@@ -238,6 +335,7 @@ def home():
         result=result,
         abuse_data=abuse_data,
         vt_data=vt_data,
+        otx_data=otx_data,
         total_threats=total_threats,
         total_ips=total_ips,
         total_domains=total_domains,
@@ -246,7 +344,64 @@ def home():
     )
 
 
+@app.route("/login", methods=["GET", "POST"])
+def login():
+    if current_user.is_authenticated:
+        return redirect(url_for("home"))
+    if request.method == "POST":
+        username = request.form.get("username", "").strip()
+        password = request.form.get("password", "")
+        db = get_db()
+        cursor = db.cursor()
+        cursor.execute("SELECT id, username, password_hash, role FROM users WHERE username = ?", (username,))
+        row = cursor.fetchone()
+        if row and check_password_hash(row[2], password):
+            user = User(id=row[0], username=row[1], role=row[3])
+            login_user(user)
+            log_audit("USER_LOGIN")
+            return redirect(url_for("home"))
+        flash("Invalid username or password")
+    return render_template("login.html")
+
+
+@app.route("/logout")
+@login_required
+def logout():
+    log_audit("USER_LOGOUT")
+    logout_user()
+    return redirect(url_for("login"))
+
+
+@app.route("/register", methods=["GET", "POST"])
+def register():
+    if current_user.is_authenticated:
+        return redirect(url_for("home"))
+    if request.method == "POST":
+        username = request.form.get("username", "").strip()
+        password = request.form.get("password", "")
+        if not username or not password:
+            flash("Username and password are required")
+            return render_template("register.html")
+        db = get_db()
+        cursor = db.cursor()
+        cursor.execute("SELECT id FROM users WHERE username = ?", (username,))
+        if cursor.fetchone():
+            flash("Username already exists")
+            return render_template("register.html")
+        hashed_password = generate_password_hash(password)
+        cursor.execute(
+            "INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)",
+            (username, hashed_password, "analyst")
+        )
+        db.commit()
+        log_audit(f"USER_REGISTERED (username: {username})")
+        flash("Registration successful! Please login.", "success")
+        return redirect(url_for("login"))
+    return render_template("register.html")
+
+
 @app.route("/edit/<int:threat_id>", methods=["GET", "POST"])
+@login_required
 def edit_threat(threat_id):
     db = get_db()
     cursor = db.cursor()
@@ -268,6 +423,7 @@ def edit_threat(threat_id):
             (indicator, threat_type, category, risk_score, threat_id)
         )
         db.commit()
+        log_audit("UPDATE_THREAT", indicator=indicator)
         return redirect("/")
 
     cursor.execute("SELECT * FROM threats WHERE id=?", (threat_id,))
@@ -277,6 +433,7 @@ def edit_threat(threat_id):
 
 
 @app.route("/export")
+@login_required
 def export_csv():
     db = get_db()
     cursor = db.cursor()
@@ -290,6 +447,7 @@ def export_csv():
         writer.writerow(threat)
 
     filename = f"threatintel-iocs-{date.today()}.csv"
+    log_audit("EXPORT_CSV")
 
     return Response(
         output.getvalue(),
