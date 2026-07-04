@@ -10,6 +10,10 @@ from datetime import date, datetime
 from dotenv import load_dotenv
 from flask_login import LoginManager, UserMixin, login_user, logout_user, login_required, current_user
 from werkzeug.security import generate_password_hash, check_password_hash
+from flask_limiter import Limiter
+from flask_limiter.util import get_remote_address
+from apscheduler.schedulers.background import BackgroundScheduler
+from urllib.parse import urlparse
 
 load_dotenv()
 
@@ -21,10 +25,23 @@ login_manager = LoginManager()
 login_manager.login_view = "login"
 login_manager.init_app(app)
 
+# Initialize Flask-Limiter
+limiter = Limiter(
+    get_remote_address,
+    app=app,
+    default_limits=["100 per hour"],
+    storage_uri="memory://"
+)
+
+@app.errorhandler(429)
+def ratelimit_handler(e):
+    return render_template("429.html"), 429
+
 API_KEY = os.environ.get("ABUSEIPDB_API_KEY")
 VT_API_KEY = os.environ.get("VIRUSTOTAL_API_KEY")
 DATABASE = "threats.db"
 AUDIT_LOG_FILE = "audit.log"
+
 
 
 # ── DATABASE & USER CLASS ───────────────────────────────────────────────────
@@ -191,6 +208,88 @@ def check_otx(indicator, indicator_type):
         return None
 
 
+def sync_threat_feeds():
+    """Query open intelligence feeds and synchronize database records."""
+    print("Background Threat Feed Sync started...")
+    feodo_ips = []
+    urlhaus_domains = []
+
+    # 1. Fetch Feodo Tracker (IP Blocklist)
+    try:
+        r = requests.get("https://feodotracker.abuse.ch/downloads/ipblocklist.txt", timeout=15)
+        if r.status_code == 200:
+            for line in r.text.splitlines():
+                line = line.strip()
+                if not line or line.startswith("#"):
+                    continue
+                ip = line.split(":")[0] if ":" in line else line
+                if re.match(r"^(\d{1,3}\.){3}\d{1,3}$", ip):
+                    feodo_ips.append(ip)
+    except Exception as e:
+        print("Feodo Tracker feed download error:", e)
+
+    # 2. Fetch URLhaus (Malicious Domains)
+    try:
+        r = requests.get("https://urlhaus.abuse.ch/downloads/text/", timeout=15)
+        if r.status_code == 200:
+            for line in r.text.splitlines():
+                line = line.strip()
+                if not line or line.startswith("#"):
+                    continue
+                parsed = urlparse(line)
+                domain = parsed.netloc
+                if ":" in domain:
+                    domain = domain.split(":")[0]
+                if domain and not re.match(r"^(\d{1,3}\.){3}\d{1,3}$", domain):
+                    urlhaus_domains.append(domain)
+    except Exception as e:
+        print("URLhaus feed download error:", e)
+
+    # 3. Commit to SQLite database
+    inserted = 0
+    try:
+        conn = sqlite3.connect(DATABASE)
+        cursor = conn.cursor()
+
+        # Insert up to 50 new IP addresses from Feodo Tracker
+        for ip in feodo_ips[:50]:
+            cursor.execute("SELECT id FROM threats WHERE indicator = ?", (ip,))
+            if cursor.fetchone() is None:
+                cursor.execute(
+                    "INSERT INTO threats (indicator, type, category, risk_score) VALUES (?, ?, ?, ?)",
+                    (ip, "IP", "Feodo Botnet IP", 85)
+                )
+                inserted += 1
+
+        # Insert up to 50 new domain names from URLhaus
+        for domain in urlhaus_domains[:50]:
+            cursor.execute("SELECT id FROM threats WHERE indicator = ?", (domain,))
+            if cursor.fetchone() is None:
+                cursor.execute(
+                    "INSERT INTO threats (indicator, type, category, risk_score) VALUES (?, ?, ?, ?)",
+                    (domain, "Domain", "URLhaus Malicious Domain", 75)
+                )
+                inserted += 1
+
+        conn.commit()
+        conn.close()
+    except Exception as e:
+        print("Database sync error:", e)
+        return 0
+
+    # 4. Log sync action to audit log
+    timestamp = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S UTC")
+    log_line = f"[{timestamp}] User: system | Action: AUTO_FEED_SYNC | Details: Imported {inserted} new indicators\n"
+    try:
+        with open(AUDIT_LOG_FILE, "a", encoding="utf-8") as f:
+            f.write(log_line)
+    except Exception as e:
+        print("Audit Log Sync Error:", e)
+
+    print(f"Background Threat Feed Sync finished. Imported {inserted} indicators.")
+    return inserted
+
+
 def sanitize(value):
     """Secure sanitization using standard HTML escaping to prevent XSS."""
     return html.escape(value.strip())
@@ -221,6 +320,7 @@ def auto_detect_type(indicator):
 # ── ROUTES ───────────────────────────────────────────────────────────────────
 
 @app.route("/", methods=["GET", "POST"])
+@limiter.limit("30 per minute")
 def home():
     result = None
     abuse_data = None
@@ -345,6 +445,7 @@ def home():
 
 
 @app.route("/login", methods=["GET", "POST"])
+@limiter.limit("5 per minute")
 def login():
     if current_user.is_authenticated:
         return redirect(url_for("home"))
@@ -373,6 +474,7 @@ def logout():
 
 
 @app.route("/register", methods=["GET", "POST"])
+@limiter.limit("5 per minute")
 def register():
     if current_user.is_authenticated:
         return redirect(url_for("home"))
@@ -454,6 +556,25 @@ def export_csv():
         mimetype="text/csv",
         headers={"Content-Disposition": f"attachment; filename={filename}"}
     )
+
+
+@app.route("/sync-feeds", methods=["POST"])
+@login_required
+def sync_feeds():
+    """Endpoint for logged-in analysts to manually trigger OSINT feed synchronization."""
+    try:
+        count = sync_threat_feeds()
+        flash(f"Threat feeds synchronized successfully! Imported {count} new indicators.", "success")
+    except Exception as e:
+        flash(f"Sync error: {e}", "danger")
+    return redirect(url_for("home"))
+
+
+# Initialize Background Scheduler
+scheduler = BackgroundScheduler()
+# Run feed sync job immediately on start, and repeat every 6 hours
+scheduler.add_job(func=sync_threat_feeds, trigger="interval", hours=6)
+scheduler.start()
 
 
 if __name__ == "__main__":
