@@ -331,21 +331,6 @@ def home():
     db = get_db()
     cursor = db.cursor()
 
-    cursor.execute("SELECT COUNT(*) FROM threats")
-    total_threats = cursor.fetchone()[0]
-
-    cursor.execute("SELECT COUNT(*) FROM threats WHERE type='IP'")
-    total_ips = cursor.fetchone()[0]
-
-    cursor.execute("SELECT COUNT(*) FROM threats WHERE type='Domain'")
-    total_domains = cursor.fetchone()[0]
-
-    cursor.execute("SELECT COUNT(*) FROM threats WHERE type='Hash'")
-    total_hashes = cursor.fetchone()[0]
-
-    cursor.execute("SELECT * FROM threats ORDER BY id DESC")
-    recent_threats = cursor.fetchall()
-
     if request.method == "POST":
 
         if "delete_id" in request.form:
@@ -363,9 +348,6 @@ def home():
             cursor.execute("DELETE FROM threats WHERE id=?", (delete_id,))
             db.commit()
             log_audit("DELETE_THREAT", indicator=deleted_indicator)
-            
-            cursor.execute("SELECT * FROM threats ORDER BY id DESC")
-            recent_threats = cursor.fetchall()
 
         elif "new_indicator" in request.form:
             if not current_user.is_authenticated:
@@ -390,11 +372,6 @@ def home():
                 )
                 db.commit()
                 log_audit("ADD_THREAT", indicator=new_indicator)
-
-            cursor.execute("SELECT * FROM threats ORDER BY id DESC")
-            recent_threats = cursor.fetchall()
-            cursor.execute("SELECT COUNT(*) FROM threats")
-            total_threats = cursor.fetchone()[0]
 
         elif "indicator" in request.form:
             indicator = sanitize(request.form["indicator"])
@@ -438,6 +415,32 @@ def home():
                 if result is None:
                     result = "NOT_FOUND"
 
+    # Fetch final stats
+    cursor.execute("SELECT COUNT(*) FROM threats")
+    total_threats = cursor.fetchone()[0]
+
+    cursor.execute("SELECT COUNT(*) FROM threats WHERE type='IP'")
+    total_ips = cursor.fetchone()[0]
+
+    cursor.execute("SELECT COUNT(*) FROM threats WHERE type='Domain'")
+    total_domains = cursor.fetchone()[0]
+
+    cursor.execute("SELECT COUNT(*) FROM threats WHERE type='Hash'")
+    total_hashes = cursor.fetchone()[0]
+
+    # Calculate pagination params
+    page = request.args.get("page", 1, type=int)
+    if page < 1:
+        page = 1
+    per_page = 10
+    total_pages = (total_threats + per_page - 1) // per_page if total_threats > 0 else 1
+    if page > total_pages:
+        page = total_pages
+    offset = (page - 1) * per_page
+
+    cursor.execute("SELECT * FROM threats ORDER BY id DESC LIMIT ? OFFSET ?", (per_page, offset))
+    recent_threats = cursor.fetchall()
+
     return render_template(
         "index.html",
         result=result,
@@ -448,7 +451,9 @@ def home():
         total_ips=total_ips,
         total_domains=total_domains,
         total_hashes=total_hashes,
-        recent_threats=recent_threats
+        recent_threats=recent_threats,
+        page=page,
+        total_pages=total_pages
     )
 
 
