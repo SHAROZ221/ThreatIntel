@@ -14,6 +14,7 @@ from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
 from apscheduler.schedulers.background import BackgroundScheduler
 from urllib.parse import urlparse
+from concurrent.futures import ThreadPoolExecutor
 
 load_dotenv()
 
@@ -415,17 +416,24 @@ def home():
 
                 result = cursor.fetchone()
 
-                # Dispatch queries safely using the auto-detected or filtered type
-                if actual_type == "IP":
-                    abuse_data = check_ip_abuseipdb(indicator)
-                    vt_data = check_ip_virustotal(indicator)
-                    otx_data = check_otx(indicator, "IP")
-                elif actual_type == "Domain":
-                    vt_data = check_domain_virustotal(indicator)
-                    otx_data = check_otx(indicator, "Domain")
-                elif actual_type == "Hash":
-                    vt_data = check_hash_virustotal(indicator)
-                    otx_data = check_otx(indicator, "Hash")
+                # Dispatch queries in parallel using ThreadPoolExecutor
+                with ThreadPoolExecutor(max_workers=3) as executor:
+                    futures = {}
+                    if actual_type == "IP":
+                        futures["abuse"] = executor.submit(check_ip_abuseipdb, indicator)
+                        futures["vt"] = executor.submit(check_ip_virustotal, indicator)
+                        futures["otx"] = executor.submit(check_otx, indicator, "IP")
+                    elif actual_type == "Domain":
+                        futures["vt"] = executor.submit(check_domain_virustotal, indicator)
+                        futures["otx"] = executor.submit(check_otx, indicator, "Domain")
+                    elif actual_type == "Hash":
+                        futures["vt"] = executor.submit(check_hash_virustotal, indicator)
+                        futures["otx"] = executor.submit(check_otx, indicator, "Hash")
+
+                    # Wait for results
+                    abuse_data = futures["abuse"].result() if "abuse" in futures else None
+                    vt_data = futures["vt"].result() if "vt" in futures else None
+                    otx_data = futures["otx"].result() if "otx" in futures else None
 
                 if result is None:
                     result = "NOT_FOUND"
