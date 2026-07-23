@@ -3,531 +3,10 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>ThreatIntel - Security Operations Command</title>
+    <title>ThreatIntel — Security Operations Command Center</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-    <style>
-        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap');
-
-        :root {
-            --bg-app: #080b11;
-            --bg-sidebar: #0d131f;
-            --bg-card: #0f172a;
-            --bg-input: #0b0f19;
-            --border-color: rgba(255, 255, 255, 0.06);
-            --border-hover: rgba(99, 102, 241, 0.25);
-            
-            --text-primary: #f8fafc;
-            --text-secondary: #94a3b8;
-            --text-muted: #64748b;
-            
-            /* Slate/Indigo accents */
-            --accent-indigo: #6366f1;
-            --accent-indigo-hover: #4f46e5;
-            --accent-indigo-light: rgba(99, 102, 241, 0.1);
-            
-            --accent-red: #ef4444;
-            --accent-amber: #f59e0b;
-            --accent-green: #10b981;
-        }
-
-        * { box-sizing: border-box; margin: 0; padding: 0; }
-
-        body {
-            background-color: var(--bg-app);
-            color: var(--text-primary);
-            font-family: 'Inter', sans-serif;
-            font-size: 13.5px;
-            min-height: 100vh;
-            overflow-x: hidden;
-        }
-
-        /* Scrollbar customization */
-        ::-webkit-scrollbar {
-            width: 6px;
-            height: 6px;
-        }
-        ::-webkit-scrollbar-track {
-            background: var(--bg-app);
-        }
-        ::-webkit-scrollbar-thumb {
-            background: #1e293b;
-            border-radius: 3px;
-        }
-        ::-webkit-scrollbar-thumb:hover {
-            background: var(--accent-indigo);
-        }
-
-        /* Main layout wrapper */
-        .app-wrapper {
-            display: flex;
-            min-height: 100vh;
-        }
-
-        /* Sidebar navigation */
-        .sidebar {
-            width: 280px;
-            background: var(--bg-sidebar);
-            border-right: 1px solid var(--border-color);
-            display: flex;
-            flex-direction: column;
-            flex-shrink: 0;
-            padding: 24px;
-            position: sticky;
-            top: 0;
-            height: 100vh;
-        }
-
-        .sidebar-brand {
-            font-size: 18px;
-            font-weight: 800;
-            color: var(--text-primary);
-            letter-spacing: -0.5px;
-            margin-bottom: 32px;
-            display: flex;
-            align-items: center;
-            gap: 8px;
-        }
-
-        .sidebar-brand span {
-            color: var(--accent-indigo);
-        }
-
-        .sidebar-brand-dot {
-            width: 7px;
-            height: 7px;
-            background-color: var(--accent-indigo);
-            border-radius: 50%;
-        }
-
-        .sidebar-section-title {
-            font-size: 10.5px;
-            font-weight: 700;
-            color: var(--text-muted);
-            text-transform: uppercase;
-            letter-spacing: 1px;
-            margin-bottom: 12px;
-            margin-top: 10px;
-        }
-
-        /* Analyst Card */
-        .analyst-card {
-            background: rgba(255, 255, 255, 0.02);
-            border: 1px solid var(--border-color);
-            border-radius: 10px;
-            padding: 16px;
-            margin-bottom: 24px;
-        }
-
-        .analyst-card-title {
-            font-size: 11px;
-            font-weight: 600;
-            color: var(--text-secondary);
-            margin-bottom: 4px;
-        }
-
-        .analyst-card-name {
-            font-size: 14px;
-            font-weight: 700;
-            color: var(--text-primary);
-            word-break: break-all;
-        }
-
-        /* Navigation List */
-        .sidebar-menu {
-            list-style: none;
-            display: flex;
-            flex-direction: column;
-            gap: 6px;
-            margin-bottom: 28px;
-        }
-
-        .sidebar-link {
-            display: flex;
-            align-items: center;
-            gap: 12px;
-            padding: 10px 14px;
-            border-radius: 8px;
-            color: var(--text-secondary);
-            font-weight: 550;
-            text-decoration: none;
-            transition: all 0.2s ease;
-            cursor: pointer;
-        }
-
-        .sidebar-link:hover {
-            background: var(--accent-indigo-light);
-            color: var(--accent-indigo);
-        }
-
-        .sidebar-link.active {
-            background: var(--accent-indigo);
-            color: #ffffff;
-        }
-
-        /* Sidebar Stats */
-        .sidebar-stats {
-            display: flex;
-            flex-direction: column;
-            gap: 12px;
-            margin-top: auto;
-        }
-
-        .sidebar-stat-item {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            font-size: 12px;
-            color: var(--text-secondary);
-            padding: 6px 0;
-            border-bottom: 1px dashed rgba(255, 255, 255, 0.03);
-        }
-
-        .sidebar-stat-item:last-child {
-            border-bottom: none;
-        }
-
-        .sidebar-stat-label {
-            display: flex;
-            align-items: center;
-            gap: 8px;
-        }
-
-        .sidebar-stat-value {
-            font-family: 'JetBrains Mono', monospace;
-            font-weight: 600;
-            color: var(--text-primary);
-        }
-
-        /* Main Content Panel */
-        .main-content {
-            flex-grow: 1;
-            padding: 32px 40px;
-            overflow-y: auto;
-            max-width: calc(100vw - 280px);
-        }
-
-        @media (max-width: 1024px) {
-            .app-wrapper {
-                flex-direction: column;
-            }
-            .sidebar {
-                width: 100%;
-                height: auto;
-                position: relative;
-                border-right: none;
-                border-bottom: 1px solid var(--border-color);
-            }
-            .main-content {
-                max-width: 100%;
-                padding: 24px;
-            }
-        }
-
-        /* Dashboard Header Components */
-        .content-header {
-            margin-bottom: 24px;
-        }
-
-        .content-title {
-            font-size: 22px;
-            font-weight: 800;
-            color: var(--text-primary);
-            letter-spacing: -0.5px;
-        }
-
-        .content-subtitle {
-            font-size: 13px;
-            color: var(--text-secondary);
-            margin-top: 4px;
-        }
-
-        /* Global Cards */
-        .card {
-            background: var(--bg-card);
-            border: 1px solid var(--border-color);
-            border-radius: 12px;
-            margin-bottom: 24px;
-            box-shadow: 0 4px 20px -2px rgba(0, 0, 0, 0.25);
-            transition: border-color 0.25s ease;
-        }
-        .card:hover {
-            border-color: var(--border-hover);
-        }
-        .card-header {
-            background: transparent;
-            border-bottom: 1px solid var(--border-color);
-            padding: 16px 24px;
-            font-size: 13.5px;
-            font-weight: 700;
-            color: var(--text-primary);
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-        }
-        .card-body { padding: 24px; }
-
-        /* Search Bar Panel (Full Width) */
-        .search-panel {
-            background: var(--bg-card);
-            border: 1px solid var(--border-color);
-            border-radius: 12px;
-            padding: 20px 24px;
-            margin-bottom: 24px;
-            box-shadow: 0 4px 20px -2px rgba(0, 0, 0, 0.25);
-        }
-
-        .search-form-row {
-            display: grid;
-            grid-template-columns: 1fr 200px 140px;
-            gap: 16px;
-            align-items: end;
-        }
-
-        @media (max-width: 768px) {
-            .search-form-row {
-                grid-template-columns: 1fr;
-            }
-        }
-
-        .form-group {
-            display: flex;
-            flex-direction: column;
-            gap: 6px;
-        }
-
-        .form-label {
-            font-size: 10.5px;
-            font-weight: 700;
-            color: var(--text-secondary);
-            text-transform: uppercase;
-            letter-spacing: 0.8px;
-        }
-
-        .form-control, .form-select {
-            background: var(--bg-input);
-            border: 1px solid var(--border-color);
-            color: var(--text-primary);
-            border-radius: 8px;
-            padding: 10px 16px;
-            font-size: 13.5px;
-            height: 42px;
-            font-family: 'Inter', sans-serif;
-            transition: all 0.2s ease;
-        }
-        .form-control:focus, .form-select:focus {
-            outline: none;
-            border-color: var(--accent-indigo);
-            background: var(--bg-input);
-            color: var(--text-primary);
-            box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.15);
-        }
-        .form-control::placeholder { color: #475569; }
-        .form-select option { background: var(--bg-card); color: var(--text-primary); }
-
-        .btn-primary-indigo {
-            background: var(--accent-indigo);
-            border: none;
-            color: #ffffff;
-            font-weight: 600;
-            border-radius: 8px;
-            padding: 0 20px;
-            height: 42px;
-            transition: all 0.2s ease;
-            cursor: pointer;
-        }
-        .btn-primary-indigo:hover {
-            background: var(--accent-indigo-hover);
-        }
-
-        /* Grid Content Area - Left Wide, Right Narrow (380px) */
-        .content-grid {
-            display: grid;
-            grid-template-columns: 1fr 380px;
-            gap: 24px;
-        }
-
-        @media (max-width: 1200px) {
-            .content-grid {
-                grid-template-columns: 1fr;
-            }
-        }
-
-        /* Result Panel Styling */
-        .result-table { width: 100%; border-collapse: collapse; }
-        .result-table td {
-            padding: 12px 0;
-            border-bottom: 1px solid rgba(255, 255, 255, 0.04);
-            font-size: 13.5px;
-        }
-        .result-table td:first-child {
-            color: var(--text-secondary);
-            width: 140px;
-            font-size: 11px;
-            text-transform: uppercase;
-            letter-spacing: 0.8px;
-            font-weight: 700;
-        }
-        .result-table td:last-child {
-            color: var(--text-primary);
-            font-family: 'JetBrains Mono', monospace;
-            font-size: 13px;
-        }
-        .result-table tr:last-child td { border-bottom: none; }
-
-        /* Badges */
-        .badge-critical { 
-            background: rgba(239, 68, 68, 0.1); 
-            color: var(--accent-red); 
-            border: 1px solid rgba(239, 68, 68, 0.15); 
-            padding: 3px 8px; 
-            border-radius: 5px; 
-            font-size: 11px; 
-            font-weight: 700; 
-            text-transform: uppercase;
-        }
-        .badge-medium { 
-            background: rgba(245, 158, 11, 0.1); 
-            color: var(--accent-amber); 
-            border: 1px solid rgba(245, 158, 11, 0.15); 
-            padding: 3px 8px; 
-            border-radius: 5px; 
-            font-size: 11px; 
-            font-weight: 700; 
-            text-transform: uppercase;
-        }
-        .badge-low { 
-            background: rgba(16, 185, 129, 0.1); 
-            color: var(--accent-green); 
-            border: 1px solid rgba(16, 185, 129, 0.15); 
-            padding: 3px 8px; 
-            border-radius: 5px; 
-            font-size: 11px; 
-            font-weight: 700; 
-            text-transform: uppercase;
-        }
-        .badge-type { 
-            background: var(--accent-indigo-light); 
-            color: var(--accent-indigo); 
-            border: 1px solid rgba(99, 102, 241, 0.2); 
-            padding: 2px 6px; 
-            border-radius: 4px; 
-            font-size: 10.5px; 
-            font-weight: 600; 
-        }
-
-        /* Section dividers */
-        .section-divider {
-            border: none;
-            border-top: 1px solid rgba(255,255,255,0.06);
-            margin: 18px 0;
-        }
-        .section-title {
-            font-size: 11px;
-            font-weight: 700;
-            color: var(--accent-indigo);
-            text-transform: uppercase;
-            letter-spacing: 0.8px;
-            margin-bottom: 12px;
-        }
-
-        /* Threats Table */
-        .threats-table { width: 100%; border-collapse: collapse; }
-        .threats-table th {
-            padding: 12px 14px;
-            font-size: 10px;
-            font-weight: 700;
-            color: var(--text-muted);
-            text-transform: uppercase;
-            letter-spacing: 0.8px;
-            border-bottom: 1px solid var(--border-color);
-            background: rgba(255, 255, 255, 0.01);
-            text-align: left;
-        }
-        .threats-table td {
-            padding: 12px 14px;
-            font-size: 12.5px;
-            color: var(--text-primary);
-            border-bottom: 1px solid rgba(255, 255, 255, 0.02);
-            vertical-align: middle;
-        }
-        .threats-table tr:last-child td { border-bottom: none; }
-        .threats-table tr {
-            transition: background 0.15s ease;
-        }
-        .threats-table tr:hover td { 
-            background: rgba(255, 255, 255, 0.015); 
-        }
-        .threats-table .indicator-cell {
-            font-family: 'JetBrains Mono', monospace;
-            font-size: 12px;
-            color: var(--text-primary);
-            cursor: help;
-        }
-
-        /* Action buttons */
-        .btn-action-wrapper {
-            display: flex;
-            gap: 4px;
-        }
-        .btn-action {
-            padding: 3px 8px;
-            border-radius: 4px;
-            font-size: 10px;
-            font-weight: 600;
-            cursor: pointer;
-            border: 1px solid;
-            background: transparent;
-            transition: all 0.15s ease;
-            text-decoration: none;
-        }
-        .btn-edit { border-color: rgba(255,255,255,0.06); color: var(--text-secondary); }
-        .btn-edit:hover { border-color: var(--accent-indigo); color: var(--accent-indigo); background: var(--accent-indigo-light); }
-        .btn-del { border-color: rgba(255,255,255,0.06); color: var(--text-secondary); }
-        .btn-del:hover { border-color: var(--accent-red); color: var(--accent-red); background: rgba(239, 68, 68, 0.05); }
-
-        /* Alerts */
-        .alert {
-            border-radius: 8px;
-            padding: 12px 18px;
-            font-size: 13px;
-            border: 1px solid;
-            margin-bottom: 24px;
-        }
-        .alert-warning {
-            background: rgba(245, 158, 11, 0.02);
-            border-color: rgba(245, 158, 11, 0.1);
-            color: var(--accent-amber);
-        }
-        .alert-success {
-            background: rgba(16, 185, 129, 0.02);
-            border-color: rgba(16, 185, 129, 0.1);
-            color: var(--accent-green);
-        }
-        .alert-danger {
-            background: rgba(239, 68, 68, 0.02);
-            border-color: rgba(239, 68, 68, 0.1);
-            color: var(--accent-red);
-        }
-
-        /* Chart container */
-        .chart-container {
-            position: relative;
-            height: 220px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            margin: 6px 0;
-        }
-
-        .pulse-meta-text {
-            font-size: 11px; 
-            color: var(--text-secondary); 
-            line-height: 1.4;
-            display: block;
-            margin-top: 2px;
-        }
-    </style>
 </head>
 <body>
 
@@ -536,60 +15,78 @@
     <!-- Sidebar Navigation Left -->
     <div class="sidebar">
         <div class="sidebar-brand">
-            <div class="sidebar-brand-dot"></div>
-            Threat<span>Intel</span>
+            <div class="brand-icon-shield">
+                <svg viewBox="0 0 24 24"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path></svg>
+            </div>
+            <div class="brand-text">Threat<span>Intel</span></div>
         </div>
 
-        <!-- Session Card -->
+        <!-- Session State HUD -->
         <div class="sidebar-section-title">Session State</div>
         <div class="analyst-card">
             {% if current_user.is_authenticated %}
                 <div class="analyst-card-title">Active Analyst</div>
                 <div class="analyst-card-name">{{ current_user.username }}</div>
             {% else %}
-                <div class="analyst-card-title">Access Status</div>
+                <div class="analyst-card-title">Access Level</div>
                 <div class="analyst-card-name" style="color: var(--text-muted);">Guest / Read-Only</div>
             {% endif %}
         </div>
 
-        <!-- Menu Navigation Actions -->
-        <div class="sidebar-section-title">Controls</div>
+        <!-- Controls Menu -->
+        <div class="sidebar-section-title">Operations Command</div>
         <div class="sidebar-menu">
             {% if current_user.is_authenticated %}
                 <form action="/sync-feeds" method="POST" id="syncForm" style="display:none;"></form>
                 <a class="sidebar-link" onclick="document.getElementById('syncForm').submit();">
-                    <span>🔄</span> Synchronize Feeds
+                    <svg viewBox="0 0 24 24"><path d="M21 2v6h-6"></path><path d="M3 12a9 9 0 0 1 15-6.7L21 8"></path><path d="M3 22v-6h6"></path><path d="M21 12a9 9 0 0 1-15 6.7L3 16"></path></svg>
+                    Sync Feeds
                 </a>
                 <a href="/logout" class="sidebar-link">
-                    <span>🔓</span> Analyst Logout
+                    <svg viewBox="0 0 24 24"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path><polyline points="16 17 21 12 16 7"></polyline><line x1="21" y1="12" x2="9" y2="12"></line></svg>
+                    Analyst Logout
                 </a>
             {% else %}
                 <a href="/login" class="sidebar-link active">
-                    <span>🔒</span> Access Portal Login
+                    <svg viewBox="0 0 24 24"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect><path d="M7 11V7a5 5 0 0 1 10 0v4"></path></svg>
+                    Portal Login
                 </a>
             {% endif %}
             <a href="/export" class="sidebar-link">
-                <span>⬇</span> Export CSV Log
+                <svg viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
+                Export CSV Log
             </a>
         </div>
 
-        <!-- Sidebar Stats Indicators -->
-        <div class="sidebar-section-title" style="margin-top: auto;">Registry Stats</div>
+        <!-- Registry Stats Sidebar -->
+        <div class="sidebar-section-title" style="margin-top: auto;">System Telemetry</div>
         <div class="sidebar-stats">
             <div class="sidebar-stat-item">
-                <span class="sidebar-stat-label">📁 Total Indicators</span>
+                <span class="sidebar-stat-label">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="var(--accent-indigo)"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path></svg>
+                    Total Indicators
+                </span>
                 <span class="sidebar-stat-value">{{ total_threats }}</span>
             </div>
             <div class="sidebar-stat-item">
-                <span class="sidebar-stat-label">🌐 IP Addresses</span>
+                <span class="sidebar-stat-label">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="var(--accent-cyan)"><circle cx="12" cy="12" r="10"></circle><line x1="2" y1="12" x2="22" y2="12"></line><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"></path></svg>
+                    IP Addresses
+                </span>
                 <span class="sidebar-stat-value">{{ total_ips }}</span>
             </div>
             <div class="sidebar-stat-item">
-                <span class="sidebar-stat-label">🔗 Domain Names</span>
+                <span class="sidebar-stat-label">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="var(--accent-amber)"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"></path><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"></path></svg>
+                    Domains
+                </span>
                 <span class="sidebar-stat-value">{{ total_domains }}</span>
             </div>
             <div class="sidebar-stat-item">
-                <span class="sidebar-stat-label">🔑 File Hashes</span>
+                <span class="sidebar-stat-label">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="var(--accent-emerald)"><path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.78 7.78 5.5 5.5 0 0 1 7.78-7.78zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4"></path></svg>
+                    File Hashes
+                </span>
                 <span class="sidebar-stat-value">{{ total_hashes }}</span>
             </div>
         </div>
@@ -598,10 +95,18 @@
     <!-- Main Content Area Right -->
     <div class="main-content">
 
-        <!-- Header -->
-        <div class="content-header">
-            <h1 class="content-title">Security Operations Center</h1>
-            <p class="content-subtitle">Multi-source OSINT Threat Intelligence Aggregator & Indicator Registry</p>
+        <!-- Top HUD Header -->
+        <div class="top-hud-bar">
+            <div>
+                <h1 class="content-title">Security Operations Center</h1>
+                <p class="content-subtitle">
+                    Multi-source OSINT Threat Intelligence Aggregator & Indicator Registry
+                </p>
+            </div>
+            <div class="status-pill">
+                <span class="pulse-indicator"></span>
+                SOC TELEMETRY ONLINE
+            </div>
         </div>
 
         <!-- Flash Messages -->
@@ -609,7 +114,7 @@
             {% if messages %}
                 <div style="display: flex; flex-direction: column; gap: 10px;">
                     {% for category, message in messages %}
-                        <div class="alert alert-{% if category == 'success' %}success{% elif category == 'danger' %}danger{% else %}warning{% endif %}">
+                        <div class="alert alert-{{ category if category in ['success', 'danger', 'warning'] else 'warning' }}">
                             {{ message }}
                         </div>
                     {% endfor %}
@@ -617,16 +122,71 @@
             {% endif %}
         {% endwith %}
 
+        <!-- Stat Top Cards Grid -->
+        <div class="stats-top-grid">
+            <div class="stat-card-top accent-indigo">
+                <div class="stat-header">
+                    <span class="stat-title">Total Indicators</span>
+                    <div class="stat-icon-wrapper icon-indigo">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path></svg>
+                    </div>
+                </div>
+                <div class="stat-number">{{ total_threats }}</div>
+                <div class="stat-footer-text">
+                    Active Registry Count
+                </div>
+            </div>
+
+            <div class="stat-card-top accent-cyan">
+                <div class="stat-header">
+                    <span class="stat-title">IP Addresses</span>
+                    <div class="stat-icon-wrapper icon-cyan">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><circle cx="12" cy="12" r="10"></circle><line x1="2" y1="12" x2="22" y2="12"></line><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"></path></svg>
+                    </div>
+                </div>
+                <div class="stat-number">{{ total_ips }}</div>
+                <div class="stat-footer-text">
+                    Ratio: <span class="percent">{% if total_threats > 0 %}{{ (total_ips / total_threats * 100)|round(1) }}{% else %}0{% endif %}%</span> of total
+                </div>
+            </div>
+
+            <div class="stat-card-top accent-amber">
+                <div class="stat-header">
+                    <span class="stat-title">Domain Threats</span>
+                    <div class="stat-icon-wrapper icon-amber">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"></path><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"></path></svg>
+                    </div>
+                </div>
+                <div class="stat-number">{{ total_domains }}</div>
+                <div class="stat-footer-text">
+                    Ratio: <span class="percent">{% if total_threats > 0 %}{{ (total_domains / total_threats * 100)|round(1) }}{% else %}0{% endif %}%</span> of total
+                </div>
+            </div>
+
+            <div class="stat-card-top accent-emerald">
+                <div class="stat-header">
+                    <span class="stat-title">File Hashes</span>
+                    <div class="stat-icon-wrapper icon-emerald">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.78 7.78 5.5 5.5 0 0 1 7.78-7.78zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4"></path></svg>
+                    </div>
+                </div>
+                <div class="stat-number">{{ total_hashes }}</div>
+                <div class="stat-footer-text">
+                    Ratio: <span class="percent">{% if total_threats > 0 %}{{ (total_hashes / total_threats * 100)|round(1) }}{% else %}0{% endif %}%</span> of total
+                </div>
+            </div>
+        </div>
+
         <!-- Search Bar Panel (Full Width) -->
         <div class="search-panel">
             <form method="POST">
                 <div class="search-form-row">
                     <div class="form-group">
-                        <label class="form-label">Indicator Value</label>
+                        <label class="form-label">Indicator Value Search</label>
                         <input type="text" name="indicator" class="form-control" placeholder="Search IP address, domain domain.com, or file hash...">
                     </div>
                     <div class="form-group">
-                        <label class="form-label">Format Filtering</label>
+                        <label class="form-label">Format Filter</label>
                         <select name="filter_type" class="form-select">
                             <option value="All">Auto-Detect / All</option>
                             <option value="IP">IP Address</option>
@@ -634,18 +194,24 @@
                             <option value="Hash">File Hash</option>
                         </select>
                     </div>
-                    <button type="submit" class="btn-primary-indigo">Query IOC</button>
+                    <button type="submit" class="btn-cyber-primary">
+                        <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
+                        Query IOC
+                    </button>
                 </div>
             </form>
         </div>
 
         <!-- Result Container (Full Width if active) -->
         {% if result %}
-        <div class="card">
-            <div class="card-header">
-                <span>Threat Intelligence Report</span>
+        <div class="soc-card">
+            <div class="soc-card-header">
+                <div class="soc-card-header-title">
+                    <svg class="soc-card-header-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line></svg>
+                    Threat Intelligence Report Analysis
+                </div>
             </div>
-            <div class="card-body">
+            <div class="soc-card-body">
                 {% if result == "NOT_FOUND" %}
                     <div class="alert alert-warning mb-0">No records found for the searched indicator in the local registry.</div>
                 {% else %}
@@ -655,11 +221,11 @@
                         <tr><td>Category</td><td>{{ result[3] }}</td></tr>
                         <tr><td>Risk Rating</td><td>
                             {% if result[4] >= 75 %}
-                                <span class="badge-critical">{{ result[4] }} — Critical</span>
+                                <span class="badge-critical">{{ result[4] }} — Critical Danger</span>
                             {% elif result[4] >= 50 %}
                                 <span class="badge-medium">{{ result[4] }} — Suspicious</span>
                             {% else %}
-                                <span class="badge-low">{{ result[4] }} — Safe / Low</span>
+                                <span class="badge-low">{{ result[4] }} — Safe / Low Risk</span>
                             {% endif %}
                         </td></tr>
                     </table>
@@ -698,13 +264,13 @@
                     <tr><td>Associated Pulses</td><td><span class="badge-medium">{{ otx_data.pulse_count }}</span></td></tr>
                 </table>
                 {% if otx_data.pulses %}
-                <div style="font-size: 11px; color: var(--text-secondary); margin-top: 14px; margin-bottom: 8px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.8px;">Detailed Pulses:</div>
-                <ul style="padding-left: 16px; margin-bottom: 0; font-size: 12.5px; color: var(--text-secondary); list-style-type: square;">
+                <div style="font-size: 11px; color: var(--accent-indigo); margin-top: 14px; margin-bottom: 8px; font-weight: 700; font-family: var(--font-mono); text-transform: uppercase;">Detailed Pulses:</div>
+                <ul style="padding-left: 18px; margin-bottom: 0; font-size: 12.5px; color: var(--text-secondary);">
                     {% for pulse in otx_data.pulses %}
                         <li style="margin-bottom: 8px;">
                             <strong style="color: var(--text-primary);">{{ pulse.name }}</strong>
                             {% if pulse.description %}
-                                <span class="pulse-meta-text">{{ pulse.description[:120] }}...</span>
+                                <span style="display: block; font-size: 11.5px; color: var(--text-muted); margin-top: 2px;">{{ pulse.description[:120] }}...</span>
                             {% endif %}
                         </li>
                     {% endfor %}
@@ -715,30 +281,35 @@
         </div>
         {% endif %}
 
-        <!-- Two Column Grid: Left Wide (Chart & Form), Right Narrow (Registry table) -->
+        <!-- Two Column Grid: Left Pane (Chart & Form), Right Pane (Threat Registry Table) -->
         <div class="content-grid">
 
             <!-- Left column: Chart and Add IOC form -->
-            <div class="left-pane">
-                
-                <!-- Chart Card -->
-                <div class="card">
-                    <div class="card-header">
-                        <span>Registry Distribution</span>
+            <div>
+                <!-- Doughnut Chart Card -->
+                <div class="soc-card">
+                    <div class="soc-card-header">
+                        <div class="soc-card-header-title">
+                            <svg class="soc-card-header-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21.21 15.89A10 10 0 1 1 8 2.83"></path><path d="M22 12A10 10 0 0 0 12 2v10z"></path></svg>
+                            Registry Distribution
+                        </div>
                     </div>
-                    <div class="card-body">
+                    <div class="soc-card-body">
                         <div class="chart-container">
-                            <canvas id="typeChart"></canvas>
+                            <canvas id="typeChart" data-ips="{{ total_ips }}" data-domains="{{ total_domains }}" data-hashes="{{ total_hashes }}"></canvas>
                         </div>
                     </div>
                 </div>
 
-                <!-- Add IOC Card -->
-                <div class="card">
-                    <div class="card-header">
-                        <span>Register New IOC</span>
+                <!-- Add Indicator Form Card -->
+                <div class="soc-card">
+                    <div class="soc-card-header">
+                        <div class="soc-card-header-title">
+                            <svg class="soc-card-header-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="8" x2="12" y2="16"></line><line x1="8" y1="12" x2="16" y2="12"></line></svg>
+                            Register New IOC
+                        </div>
                     </div>
-                    <div class="card-body">
+                    <div class="soc-card-body">
                         {% if current_user.is_authenticated %}
                         <form method="POST">
                             <div class="row">
@@ -765,25 +336,27 @@
                                     <input type="number" name="new_risk" class="form-control" min="0" max="100" required>
                                 </div>
                             </div>
-                            <button type="submit" class="btn-primary-indigo w-100 mt-2">Add Indicator</button>
+                            <button type="submit" class="btn-cyber-primary w-100 mt-2">Add Indicator</button>
                         </form>
                         {% else %}
                         <div class="alert alert-warning mb-0 text-center">
-                            Authentication required. Please <a href="/login" style="color: var(--accent-indigo); text-decoration: none; font-weight: 700;">login</a> to add threat indicators.
+                            Authentication required. Please <a href="/login" style="color: var(--accent-indigo); text-decoration: underline; font-weight: 700;">login</a> to add threat indicators.
                         </div>
                         {% endif %}
                     </div>
                 </div>
-
             </div>
 
             <!-- Right column: Table of indicators -->
-            <div class="right-pane">
-                <div class="card">
-                    <div class="card-header">
-                        <span>Threat Registry</span>
+            <div>
+                <div class="soc-card">
+                    <div class="soc-card-header">
+                        <div class="soc-card-header-title">
+                            <svg class="soc-card-header-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path></svg>
+                            Threat Registry
+                        </div>
                         {% if current_user.is_authenticated %}
-                        <a href="/export" class="btn-action btn-edit" style="font-size: 9px; padding: 2px 6px;">CSV</a>
+                        <a href="/export" class="btn-action btn-edit" style="font-size: 10px; padding: 4px 10px;">CSV</a>
                         {% endif %}
                     </div>
                     <div style="overflow-x: auto;">
@@ -819,14 +392,14 @@
                                     <td>
                                         {% if current_user.is_authenticated %}
                                         <div class="btn-action-wrapper">
-                                            <a href="/edit/{{ threat[0] }}" class="btn-action btn-edit" style="padding: 2px 4px;">Edit</a>
+                                            <a href="/edit/{{ threat[0] }}" class="btn-action btn-edit">Edit</a>
                                             <form method="POST" style="display:inline;">
                                                 <input type="hidden" name="delete_id" value="{{ threat[0] }}">
-                                                <button type="submit" class="btn-action btn-del" style="padding: 2px 4px;">Del</button>
+                                                <button type="submit" class="btn-action btn-del">Del</button>
                                             </form>
                                         </div>
                                         {% else %}
-                                        <span style="font-size: 9px; color: var(--text-muted); font-weight: 700; text-transform: uppercase;">View</span>
+                                        <span style="font-size: 10px; color: var(--text-muted); font-family: var(--font-mono); font-weight: 700; text-transform: uppercase;">View</span>
                                         {% endif %}
                                     </td>
                                 </tr>
@@ -836,22 +409,22 @@
                     </div>
                     <!-- Pagination Controls -->
                     {% if total_pages > 1 %}
-                    <div style="display: flex; justify-content: space-between; align-items: center; padding: 12px 14px; border-top: 1px solid var(--border-color); background: rgba(255, 255, 255, 0.015);">
+                    <div class="pagination-bar">
                         <div>
                             {% if page > 1 %}
-                                <a href="/?page={{ page - 1 }}" class="btn-action btn-edit" style="padding: 4px 8px; text-decoration: none;">&laquo; Prev</a>
+                                <a href="/?page={{ page - 1 }}" class="pagination-btn">&laquo; Prev</a>
                             {% else %}
-                                <span style="font-size: 10.5px; color: var(--text-muted); padding: 4px 8px; border: 1px solid rgba(255, 255, 255, 0.02); border-radius: 4px; pointer-events: none; cursor: default;">&laquo; Prev</span>
+                                <span class="pagination-btn-disabled">&laquo; Prev</span>
                             {% endif %}
                         </div>
-                        <div style="font-size: 11px; color: var(--text-secondary); font-weight: 600;">
+                        <div style="font-family: var(--font-mono); font-size: 11px; color: var(--text-secondary);">
                             Page {{ page }} of {{ total_pages }}
                         </div>
                         <div>
                             {% if page < total_pages %}
-                                <a href="/?page={{ page + 1 }}" class="btn-action btn-edit" style="padding: 4px 8px; text-decoration: none;">Next &raquo;</a>
+                                <a href="/?page={{ page + 1 }}" class="pagination-btn">Next &raquo;</a>
                             {% else %}
-                                <span style="font-size: 10.5px; color: var(--text-muted); padding: 4px 8px; border: 1px solid rgba(255, 255, 255, 0.02); border-radius: 4px; pointer-events: none; cursor: default;">Next &raquo;</span>
+                                <span class="pagination-btn-disabled">Next &raquo;</span>
                             {% endif %}
                         </div>
                     </div>
@@ -865,22 +438,28 @@
 </div>
 
 <script>
-    const ctx = document.getElementById('typeChart').getContext('2d');
-    
-    // Set custom font family matching style
+    const canvas = document.getElementById('typeChart');
+    const totalIps = parseInt(canvas.dataset.ips, 10) || 0;
+    const totalDomains = parseInt(canvas.dataset.domains, 10) || 0;
+    const totalHashes = parseInt(canvas.dataset.hashes, 10) || 0;
+
     Chart.defaults.font.family = "'Inter', sans-serif";
     Chart.defaults.font.size = 11;
     
-    new Chart(ctx, {
+    new Chart(canvas.getContext('2d'), {
         type: 'doughnut',
         data: {
             labels: ['IP Addresses', 'Domains', 'File Hashes'],
             datasets: [{
-                data: [{{ total_ips }}, {{ total_domains }}, {{ total_hashes }}],
-                backgroundColor: ['#ef4444', '#f59e0b', '#10b981'],
-                borderColor: '#0f172a',
+                data: [totalIps, totalDomains, totalHashes],
+                backgroundColor: [
+                    '#58a6ff',
+                    '#d29922',
+                    '#3fb950'
+                ],
+                borderColor: '#161b22',
                 borderWidth: 3,
-                hoverOffset: 6
+                hoverOffset: 4
             }]
         },
         options: {
@@ -891,13 +470,11 @@
                 legend: {
                     position: 'bottom',
                     labels: {
-                        color: '#94a3b8',
-                        padding: 16,
+                        color: '#8b949e',
+                        padding: 14,
                         usePointStyle: true,
-                        font: { 
-                            size: 11,
-                            weight: '600'
-                        }
+                        pointStyleWidth: 7,
+                        font: { size: 11, weight: '500' }
                     }
                 }
             }

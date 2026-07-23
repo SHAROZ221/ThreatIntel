@@ -19,6 +19,7 @@ from concurrent.futures import ThreadPoolExecutor
 load_dotenv()
 
 app = Flask(__name__)
+app.config['TEMPLATES_AUTO_RELOAD'] = True
 app.secret_key = os.environ.get("FLASK_SECRET_KEY", "threat_intel_secret_key_12345")
 
 # Initialize Flask-Login
