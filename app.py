@@ -1,4 +1,4 @@
-from flask import Flask, render_template, request, redirect, Response, g, url_for, flash
+from flask import Flask, render_template, request, redirect, Response, g, url_for, flash, abort, jsonify
 import sqlite3
 import requests
 import csv
@@ -15,6 +15,9 @@ from flask_limiter.util import get_remote_address
 from apscheduler.schedulers.background import BackgroundScheduler
 from urllib.parse import urlparse
 from concurrent.futures import ThreadPoolExecutor
+import uuid
+import json
+from functools import wraps
 
 load_dotenv()
 
@@ -297,6 +300,40 @@ def sanitize(value):
     return html.escape(value.strip())
 
 
+def admin_required(f):
+    """Decorator: restrict route to admin role only."""
+    @wraps(f)
+    def decorated_function(*args, **kwargs):
+        if not current_user.is_authenticated:
+            return redirect(url_for("login"))
+        if current_user.role != "admin":
+            flash("Admin access required.", "danger")
+            return redirect(url_for("home"))
+        return f(*args, **kwargs)
+    return decorated_function
+
+
+def generate_api_key():
+    """Generate a unique API key prefixed with 'ti_'."""
+    return f"ti_{uuid.uuid4().hex}"
+
+
+def api_key_auth():
+    """Authenticate request via X-API-Key header. Returns User or None."""
+    key = request.headers.get("X-API-Key", "").strip()
+    if not key:
+        return None
+    db = get_db()
+    cursor = db.cursor()
+    cursor.execute(
+        "SELECT u.id, u.username, u.role FROM api_keys ak "
+        "JOIN users u ON ak.user_id = u.id WHERE ak.key = ?",
+        (key,)
+    )
+    row = cursor.fetchone()
+    return User(id=row[0], username=row[1], role=row[2]) if row else None
+
+
 def auto_detect_type(indicator):
     """Automatically detect indicator type using regular expressions."""
     indicator_clean = indicator.strip()
@@ -442,6 +479,19 @@ def home():
     cursor.execute("SELECT * FROM threats ORDER BY id DESC LIMIT ? OFFSET ?", (per_page, offset))
     recent_threats = cursor.fetchall()
 
+    # Timeline: IOC additions per day for last 30 days
+    cursor.execute("""
+        SELECT DATE(created_at) as day, COUNT(*) as count
+        FROM threats
+        WHERE created_at IS NOT NULL
+          AND DATE(created_at) >= DATE('now', '-29 days')
+        GROUP BY day
+        ORDER BY day ASC
+    """)
+    timeline_rows = cursor.fetchall()
+    timeline_labels = json.dumps([r[0] for r in timeline_rows])
+    timeline_values = json.dumps([r[1] for r in timeline_rows])
+
     return render_template(
         "index.html",
         result=result,
@@ -454,7 +504,9 @@ def home():
         total_hashes=total_hashes,
         recent_threats=recent_threats,
         page=page,
-        total_pages=total_pages
+        total_pages=total_pages,
+        timeline_labels=timeline_labels,
+        timeline_values=timeline_values
     )
 
 
@@ -583,6 +635,363 @@ def sync_feeds():
         flash(f"Sync error: {e}", "danger")
     return redirect(url_for("home"))
 
+
+# ── BULK IMPORT ROUTE ────────────────────────────────────────────────────────
+
+@app.route("/import", methods=["POST"])
+@login_required
+def bulk_import():
+    """Accept a textarea paste or file upload and batch-insert IOCs."""
+    raw_text = request.form.get("ioc_text", "")
+    uploaded_file = request.files.get("ioc_file")
+
+    lines = []
+    if uploaded_file and uploaded_file.filename:
+        try:
+            content = uploaded_file.read().decode("utf-8", errors="ignore")
+            lines.extend(content.splitlines())
+        except Exception:
+            pass
+    if raw_text.strip():
+        lines.extend(raw_text.splitlines())
+
+    db = get_db()
+    cursor = db.cursor()
+    counts = {"IP": 0, "Domain": 0, "Hash": 0}
+    skipped = 0
+    unrecognised = 0
+
+    for line in lines:
+        line = line.strip()
+        if not line or line.startswith("#"):
+            continue
+        parts = [p.strip() for p in line.split(",")]
+        indicator = sanitize(parts[0]) if parts else ""
+        if not indicator or len(indicator) > 500:
+            unrecognised += 1
+            continue
+
+        ioc_type = None
+        if len(parts) > 1 and parts[1] in ("IP", "Domain", "Hash"):
+            ioc_type = parts[1]
+        else:
+            ioc_type = auto_detect_type(indicator)
+
+        if not ioc_type:
+            unrecognised += 1
+            continue
+
+        category = sanitize(parts[2]) if len(parts) > 2 and parts[2] else "Bulk Import"
+        try:
+            risk_score = int(parts[3]) if len(parts) > 3 else 50
+            risk_score = max(0, min(100, risk_score))
+        except (ValueError, IndexError):
+            risk_score = 50
+
+        cursor.execute("SELECT id FROM threats WHERE indicator = ?", (indicator,))
+        if cursor.fetchone():
+            skipped += 1
+            continue
+
+        cursor.execute(
+            "INSERT INTO threats (indicator, type, category, risk_score) VALUES (?, ?, ?, ?)",
+            (indicator, ioc_type, category, risk_score)
+        )
+        counts[ioc_type] += 1
+
+    db.commit()
+    total = sum(counts.values())
+    log_audit(
+        f"BULK_IMPORT | Added {total} "
+        f"(IP:{counts['IP']} Domain:{counts['Domain']} Hash:{counts['Hash']}) "
+        f"Skipped:{skipped} Unrecognised:{unrecognised}"
+    )
+    flash(
+        f"Import complete! Added {total} indicators "
+        f"({counts['IP']} IPs, {counts['Domain']} Domains, {counts['Hash']} Hashes). "
+        f"Skipped {skipped} duplicates, {unrecognised} unrecognised.",
+        "success"
+    )
+    return redirect(url_for("home"))
+
+
+# ── ADMIN PANEL ROUTES ────────────────────────────────────────────────────────
+
+@app.route("/admin")
+@admin_required
+def admin_panel():
+    """Main admin control panel — users, API keys, and audit log."""
+    db = get_db()
+    cursor = db.cursor()
+
+    cursor.execute("SELECT id, username, role, created_at FROM users ORDER BY id ASC")
+    users = cursor.fetchall()
+
+    cursor.execute(
+        "SELECT ak.id, ak.name, ak.key, ak.created_at, u.username "
+        "FROM api_keys ak JOIN users u ON ak.user_id = u.id ORDER BY ak.id DESC"
+    )
+    api_keys = cursor.fetchall()
+
+    audit_lines = []
+    try:
+        with open(AUDIT_LOG_FILE, "r", encoding="utf-8") as f:
+            audit_lines = f.readlines()[-100:][::-1]
+    except FileNotFoundError:
+        audit_lines = []
+
+    return render_template(
+        "admin.html",
+        users=users,
+        api_keys=api_keys,
+        audit_lines=audit_lines
+    )
+
+
+@app.route("/admin/promote/<int:user_id>", methods=["POST"])
+@admin_required
+def admin_promote(user_id):
+    """Promote a user to admin role."""
+    db = get_db()
+    cursor = db.cursor()
+    cursor.execute("SELECT username FROM users WHERE id = ?", (user_id,))
+    row = cursor.fetchone()
+    if row and row[0] != current_user.username:
+        cursor.execute("UPDATE users SET role = 'admin' WHERE id = ?", (user_id,))
+        db.commit()
+        log_audit(f"PROMOTE_USER | username: {row[0]}")
+        flash(f"User '{row[0]}' promoted to admin.", "success")
+    return redirect(url_for("admin_panel"))
+
+
+@app.route("/admin/demote/<int:user_id>", methods=["POST"])
+@admin_required
+def admin_demote(user_id):
+    """Demote an admin to analyst role."""
+    db = get_db()
+    cursor = db.cursor()
+    cursor.execute("SELECT username FROM users WHERE id = ?", (user_id,))
+    row = cursor.fetchone()
+    if row and row[0] != current_user.username:
+        cursor.execute("UPDATE users SET role = 'analyst' WHERE id = ?", (user_id,))
+        db.commit()
+        log_audit(f"DEMOTE_USER | username: {row[0]}")
+        flash(f"User '{row[0]}' demoted to analyst.", "success")
+    return redirect(url_for("admin_panel"))
+
+
+@app.route("/admin/delete-user/<int:user_id>", methods=["POST"])
+@admin_required
+def admin_delete_user(user_id):
+    """Permanently delete a user account and their API keys."""
+    db = get_db()
+    cursor = db.cursor()
+    cursor.execute("SELECT username FROM users WHERE id = ?", (user_id,))
+    row = cursor.fetchone()
+    if not row:
+        flash("User not found.", "danger")
+        return redirect(url_for("admin_panel"))
+    if row[0] == current_user.username:
+        flash("Cannot delete your own account.", "danger")
+        return redirect(url_for("admin_panel"))
+    cursor.execute("DELETE FROM api_keys WHERE user_id = ?", (user_id,))
+    cursor.execute("DELETE FROM users WHERE id = ?", (user_id,))
+    db.commit()
+    log_audit(f"DELETE_USER | username: {row[0]}")
+    flash(f"User '{row[0]}' and their API keys deleted.", "success")
+    return redirect(url_for("admin_panel"))
+
+
+@app.route("/admin/generate-key", methods=["POST"])
+@admin_required
+def admin_generate_key():
+    """Generate a new API key and assign it to a user."""
+    key_name = sanitize(request.form.get("key_name", "API Key").strip())
+    try:
+        target_user_id = int(request.form.get("user_id", current_user.id))
+    except (ValueError, TypeError):
+        target_user_id = current_user.id
+
+    new_key = generate_api_key()
+    db = get_db()
+    cursor = db.cursor()
+    cursor.execute(
+        "INSERT INTO api_keys (user_id, key, name) VALUES (?, ?, ?)",
+        (target_user_id, new_key, key_name)
+    )
+    db.commit()
+    log_audit(f"GENERATE_API_KEY | name: {key_name}")
+    flash(f"API Key generated — copy it now (shown only once): {new_key}", "success")
+    return redirect(url_for("admin_panel"))
+
+
+@app.route("/admin/revoke-key/<int:key_id>", methods=["POST"])
+@admin_required
+def admin_revoke_key(key_id):
+    """Revoke (delete) an API key."""
+    db = get_db()
+    cursor = db.cursor()
+    cursor.execute("SELECT name FROM api_keys WHERE id = ?", (key_id,))
+    row = cursor.fetchone()
+    if row:
+        cursor.execute("DELETE FROM api_keys WHERE id = ?", (key_id,))
+        db.commit()
+        log_audit(f"REVOKE_API_KEY | name: {row[0]}")
+        flash(f"API Key '{row[0]}' revoked.", "success")
+    return redirect(url_for("admin_panel"))
+
+
+# ── REST API v1 ───────────────────────────────────────────────────────────────
+
+def _api_error(message, code=400):
+    return jsonify({"error": message, "status": code}), code
+
+
+def _api_ok(data, code=200):
+    return jsonify({"status": code, **data}), code
+
+
+@app.route("/api/v1/iocs", methods=["GET"])
+def api_list_iocs():
+    """List IOCs with optional type filter and pagination. Requires X-API-Key."""
+    auth_user = api_key_auth()
+    if not auth_user:
+        return _api_error("Invalid or missing X-API-Key header.", 401)
+
+    ioc_type = request.args.get("type")
+    page = max(request.args.get("page", 1, type=int), 1)
+    per_page = min(request.args.get("per_page", 50, type=int), 200)
+    offset = (page - 1) * per_page
+
+    db = get_db()
+    cursor = db.cursor()
+
+    if ioc_type and ioc_type in ("IP", "Domain", "Hash"):
+        cursor.execute(
+            "SELECT id, indicator, type, category, risk_score, created_at "
+            "FROM threats WHERE type = ? ORDER BY id DESC LIMIT ? OFFSET ?",
+            (ioc_type, per_page, offset)
+        )
+        total = db.cursor().execute(
+            "SELECT COUNT(*) FROM threats WHERE type = ?", (ioc_type,)
+        ).fetchone()[0]
+    else:
+        cursor.execute(
+            "SELECT id, indicator, type, category, risk_score, created_at "
+            "FROM threats ORDER BY id DESC LIMIT ? OFFSET ?",
+            (per_page, offset)
+        )
+        total = db.cursor().execute("SELECT COUNT(*) FROM threats").fetchone()[0]
+
+    rows = cursor.fetchall()
+    iocs = [
+        {"id": r[0], "indicator": r[1], "type": r[2],
+         "category": r[3], "risk_score": r[4], "created_at": r[5]}
+        for r in rows
+    ]
+    return _api_ok({
+        "iocs": iocs,
+        "total": total,
+        "page": page,
+        "per_page": per_page,
+        "pages": (total + per_page - 1) // per_page if total > 0 else 1
+    })
+
+
+@app.route("/api/v1/ioc/<path:indicator>", methods=["GET"])
+def api_get_ioc(indicator):
+    """Look up a single IOC by its indicator value. Requires X-API-Key."""
+    auth_user = api_key_auth()
+    if not auth_user:
+        return _api_error("Invalid or missing X-API-Key header.", 401)
+
+    db = get_db()
+    cursor = db.cursor()
+    cursor.execute(
+        "SELECT id, indicator, type, category, risk_score, created_at "
+        "FROM threats WHERE indicator = ?",
+        (indicator,)
+    )
+    row = cursor.fetchone()
+    if not row:
+        return _api_error(f"Indicator '{indicator}' not found in registry.", 404)
+
+    return _api_ok({"found": True, "ioc": {
+        "id": row[0], "indicator": row[1], "type": row[2],
+        "category": row[3], "risk_score": row[4], "created_at": row[5]
+    }})
+
+
+@app.route("/api/v1/ioc", methods=["POST"])
+def api_create_ioc():
+    """Create a new IOC via JSON payload. Requires X-API-Key."""
+    auth_user = api_key_auth()
+    if not auth_user:
+        return _api_error("Invalid or missing X-API-Key header.", 401)
+
+    data = request.get_json(silent=True)
+    if not data:
+        return _api_error("JSON body required.", 400)
+
+    indicator = html.escape(str(data.get("indicator", "")).strip())
+    ioc_type = data.get("type")
+    category = html.escape(str(data.get("category", "API Import")).strip())
+    try:
+        risk_score = int(data.get("risk_score", 50))
+        risk_score = max(0, min(100, risk_score))
+    except (ValueError, TypeError):
+        risk_score = 50
+
+    if not indicator:
+        return _api_error("'indicator' field is required.", 400)
+    if ioc_type not in ("IP", "Domain", "Hash"):
+        ioc_type = auto_detect_type(indicator)
+    if not ioc_type:
+        return _api_error(
+            "Could not detect IOC type. Provide 'type': 'IP', 'Domain', or 'Hash'.", 400
+        )
+
+    db = get_db()
+    cursor = db.cursor()
+    cursor.execute("SELECT id FROM threats WHERE indicator = ?", (indicator,))
+    if cursor.fetchone():
+        return _api_error(f"Indicator '{indicator}' already exists.", 409)
+
+    cursor.execute(
+        "INSERT INTO threats (indicator, type, category, risk_score) VALUES (?, ?, ?, ?)",
+        (indicator, ioc_type, category, risk_score)
+    )
+    db.commit()
+    log_audit("API_CREATE_IOC", indicator=indicator)
+    return _api_ok({"created": True, "ioc": {
+        "id": cursor.lastrowid, "indicator": indicator, "type": ioc_type,
+        "category": category, "risk_score": risk_score
+    }}, 201)
+
+
+@app.route("/api/v1/ioc/<int:ioc_id>", methods=["DELETE"])
+def api_delete_ioc(ioc_id):
+    """Delete an IOC by ID. Requires admin API key."""
+    auth_user = api_key_auth()
+    if not auth_user:
+        return _api_error("Invalid or missing X-API-Key header.", 401)
+    if auth_user.role != "admin":
+        return _api_error("Admin API key required to delete IOCs.", 403)
+
+    db = get_db()
+    cursor = db.cursor()
+    cursor.execute("SELECT indicator FROM threats WHERE id = ?", (ioc_id,))
+    row = cursor.fetchone()
+    if not row:
+        return _api_error(f"IOC id {ioc_id} not found.", 404)
+
+    cursor.execute("DELETE FROM threats WHERE id = ?", (ioc_id,))
+    db.commit()
+    log_audit("API_DELETE_IOC", indicator=row[0])
+    return _api_ok({"deleted": True, "id": ioc_id, "indicator": row[0]})
+
+
+# ── BACKGROUND SCHEDULER ──────────────────────────────────────────────────────
 
 # Initialize Background Scheduler
 scheduler = BackgroundScheduler()

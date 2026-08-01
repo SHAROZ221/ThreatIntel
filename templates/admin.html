@@ -1,0 +1,234 @@
+﻿<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ThreatIntel — Admin Control Panel</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body>
+<div class="app-wrapper">
+  <div class="sidebar">
+    <div class="sidebar-brand">
+      <div class="brand-icon-shield"><svg viewBox="0 0 24 24"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path></svg></div>
+      <div class="brand-text">Threat<span>Intel</span></div>
+    </div>
+    <div class="sidebar-section-title">Session State</div>
+    <div class="analyst-card">
+      <div class="analyst-card-title">Active Admin</div>
+      <div class="analyst-card-name">{{ current_user.username }}</div>
+      <div style="margin-top:6px;"><span class="role-badge-admin">Admin</span></div>
+    </div>
+    <div class="sidebar-section-title">Navigation</div>
+    <div class="sidebar-menu">
+      <a href="/" class="sidebar-link">
+        <svg viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7"></rect><rect x="14" y="3" width="7" height="7"></rect><rect x="14" y="14" width="7" height="7"></rect><rect x="3" y="14" width="7" height="7"></rect></svg>
+        SOC Dashboard
+      </a>
+      <a href="/admin" class="sidebar-link active">
+        <svg viewBox="0 0 24 24"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path><circle cx="12" cy="7" r="4"></circle></svg>
+        Admin Panel
+      </a>
+      <a href="/export" class="sidebar-link">
+        <svg viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
+        Export CSV
+      </a>
+      <a href="/logout" class="sidebar-link">
+        <svg viewBox="0 0 24 24"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path><polyline points="16 17 21 12 16 7"></polyline><line x1="21" y1="12" x2="9" y2="12"></line></svg>
+        Logout
+      </a>
+    </div>
+    <div class="sidebar-section-title" style="margin-top:auto;">Admin Scope</div>
+    <div style="font-size:11px; color:var(--text-muted); padding:0 4px; line-height:1.9;">
+      <div>Users: {{ users|length }}</div>
+      <div>API Keys: {{ api_keys|length }}</div>
+      <div>Log Entries: {{ audit_lines|length }}</div>
+    </div>
+  </div>
+
+  <div class="main-content">
+    <div class="top-hud-bar">
+      <div>
+        <h1 class="content-title">Admin Control Panel</h1>
+        <p class="content-subtitle">User management, API key lifecycle &amp; audit trail</p>
+      </div>
+      <div class="status-pill" style="background:rgba(248,81,73,0.1); border-color:rgba(248,81,73,0.3); color:#f85149;">
+        <span class="pulse-indicator" style="background:#f85149;"></span>
+        ADMIN MODE
+      </div>
+    </div>
+
+    {% with messages = get_flashed_messages(with_categories=true) %}
+      {% if messages %}
+        <div style="display:flex; flex-direction:column; gap:10px; margin-bottom:20px;">
+          {% for category, message in messages %}
+            <div class="alert alert-{{ category if category in ['success','danger','warning'] else 'warning' }}">{{ message }}</div>
+          {% endfor %}
+        </div>
+      {% endif %}
+    {% endwith %}
+
+    <!-- Users Table -->
+    <div class="soc-card" style="margin-bottom:20px;">
+      <div class="soc-card-header">
+        <div class="soc-card-header-title">
+          <svg class="soc-card-header-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle><path d="M23 21v-2a4 4 0 0 0-3-3.87"></path><path d="M16 3.13a4 4 0 0 1 0 7.75"></path></svg>
+          Registered Analysts <span style="margin-left:8px; font-size:11px; color:var(--text-muted); font-family:var(--font-mono);">({{ users|length }} total)</span>
+        </div>
+      </div>
+      <div style="overflow-x:auto;">
+        <table class="threats-table">
+          <thead><tr><th>ID</th><th>Username</th><th>Role</th><th>Registered</th><th>Actions</th></tr></thead>
+          <tbody>
+            {% for user in users %}
+            <tr>
+              <td><span style="font-family:var(--font-mono); color:var(--text-muted); font-size:11px;">#{{ user[0] }}</span></td>
+              <td>
+                <span style="font-weight:600; color:var(--text-primary);">{{ user[1] }}</span>
+                {% if user[1] == current_user.username %}<span style="font-size:10px; color:var(--text-muted); margin-left:6px;">(you)</span>{% endif %}
+              </td>
+              <td>
+                {% if user[2] == 'admin' %}<span class="role-badge-admin">Admin</span>{% else %}<span class="role-badge-analyst">Analyst</span>{% endif %}
+              </td>
+              <td><span style="font-family:var(--font-mono); font-size:11px; color:var(--text-secondary);">{{ user[3][:10] if user[3] else 'N/A' }}</span></td>
+              <td>
+                {% if user[1] != current_user.username %}
+                <div class="btn-action-wrapper">
+                  {% if user[2] != 'admin' %}
+                  <form method="POST" action="/admin/promote/{{ user[0] }}" style="display:inline;">
+                    <button type="submit" class="btn-action btn-edit">▲ Promote</button>
+                  </form>
+                  {% else %}
+                  <form method="POST" action="/admin/demote/{{ user[0] }}" style="display:inline;">
+                    <button type="submit" class="btn-action" style="color:var(--color-medium); border-color:rgba(210,153,34,0.4);">▼ Demote</button>
+                  </form>
+                  {% endif %}
+                  <form method="POST" action="/admin/delete-user/{{ user[0] }}" style="display:inline;" onsubmit="return confirm('Permanently delete user {{ user[1] }}?');">
+                    <button type="submit" class="btn-action btn-del">✕ Delete</button>
+                  </form>
+                </div>
+                {% else %}
+                <span style="font-size:10px; color:var(--text-muted); font-family:var(--font-mono);">— current session —</span>
+                {% endif %}
+              </td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- API Key Management -->
+    <div class="soc-card" style="margin-bottom:20px;">
+      <div class="soc-card-header">
+        <div class="soc-card-header-title">
+          <svg class="soc-card-header-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.78 7.78 5.5 5.5 0 0 1 7.78-7.78zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4"></path></svg>
+          REST API Key Management
+        </div>
+        <span style="font-size:11px; color:var(--text-muted); font-family:var(--font-mono);">Header: <code style="color:var(--accent-blue);">X-API-Key</code></span>
+      </div>
+      <div class="soc-card-body">
+        <div style="padding-bottom:18px; border-bottom:1px solid var(--border-subtle); margin-bottom:18px;">
+          <div style="font-size:12px; font-weight:600; color:var(--text-secondary); margin-bottom:12px; text-transform:uppercase; letter-spacing:0.5px;">Generate New Key</div>
+          <form method="POST" action="/admin/generate-key">
+            <div class="generate-key-row">
+              <div class="form-group">
+                <label class="form-label">Key Label / Name</label>
+                <input type="text" name="key_name" class="form-control" placeholder="e.g. SIEM Integration" required style="min-width:220px;">
+              </div>
+              <div class="form-group">
+                <label class="form-label">Assign to User</label>
+                <select name="user_id" class="form-select" style="min-width:160px;">
+                  {% for user in users %}
+                  <option value="{{ user[0] }}" {% if user[1] == current_user.username %}selected{% endif %}>{{ user[1] }} ({{ user[2] }})</option>
+                  {% endfor %}
+                </select>
+              </div>
+              <button type="submit" class="btn-cyber-primary" style="white-space:nowrap;">Generate Key</button>
+            </div>
+          </form>
+          <div style="font-size:11px; color:var(--text-muted); margin-top:10px;">⚠️ The full key is shown only once in the success message. Copy and store it securely.</div>
+        </div>
+        {% if api_keys %}
+        <table class="threats-table">
+          <thead><tr><th>Label</th><th>Key Preview</th><th>Owner</th><th>Created</th><th>Action</th></tr></thead>
+          <tbody>
+            {% for key in api_keys %}
+            <tr>
+              <td><span style="font-weight:600; color:var(--text-primary);">{{ key[1] }}</span></td>
+              <td><span class="api-key-chip">{{ key[2][:8] }}...{{ key[2][-4:] }}</span></td>
+              <td><span style="color:var(--text-secondary);">{{ key[4] }}</span></td>
+              <td><span style="font-family:var(--font-mono); font-size:11px; color:var(--text-secondary);">{{ key[3][:10] if key[3] else 'N/A' }}</span></td>
+              <td>
+                <form method="POST" action="/admin/revoke-key/{{ key[0] }}" style="display:inline;" onsubmit="return confirm('Revoke key {{ key[1] }}?');">
+                  <button type="submit" class="btn-action btn-del">Revoke</button>
+                </form>
+              </td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+        {% else %}
+        <div style="color:var(--text-muted); font-size:12px; text-align:center; padding:24px; font-family:var(--font-mono);">No API keys generated yet.</div>
+        {% endif %}
+      </div>
+    </div>
+
+    <!-- REST API Quick Reference -->
+    <div class="soc-card" style="margin-bottom:20px;">
+      <div class="soc-card-header">
+        <div class="soc-card-header-title">
+          <svg class="soc-card-header-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="16 18 22 12 16 6"></polyline><polyline points="8 6 2 12 8 18"></polyline></svg>
+          REST API v1 — Quick Reference
+        </div>
+      </div>
+      <div class="soc-card-body">
+        <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(260px, 1fr)); gap:12px; margin-bottom:14px;">
+          <div style="background:var(--bg-app); border:1px solid var(--border-subtle); border-radius:var(--radius-md); padding:12px;">
+            <div style="font-family:var(--font-mono); font-size:11px; margin-bottom:6px;"><span style="color:#3fb950; font-weight:700;">GET</span> <span style="color:var(--text-secondary);">/api/v1/iocs</span></div>
+            <div style="font-size:11px; color:var(--text-muted);">List IOCs. Optional: <code style="color:var(--accent-blue);">?type=IP&amp;page=1&amp;per_page=50</code></div>
+          </div>
+          <div style="background:var(--bg-app); border:1px solid var(--border-subtle); border-radius:var(--radius-md); padding:12px;">
+            <div style="font-family:var(--font-mono); font-size:11px; margin-bottom:6px;"><span style="color:#3fb950; font-weight:700;">GET</span> <span style="color:var(--text-secondary);">/api/v1/ioc/&lt;indicator&gt;</span></div>
+            <div style="font-size:11px; color:var(--text-muted);">Look up a single IOC by its exact value.</div>
+          </div>
+          <div style="background:var(--bg-app); border:1px solid var(--border-subtle); border-radius:var(--radius-md); padding:12px;">
+            <div style="font-family:var(--font-mono); font-size:11px; margin-bottom:6px;"><span style="color:#58a6ff; font-weight:700;">POST</span> <span style="color:var(--text-secondary);">/api/v1/ioc</span></div>
+            <div style="font-size:11px; color:var(--text-muted);">Create IOC. Body: <code style="color:var(--accent-blue);">{"indicator":"..","type":"IP","risk_score":80}</code></div>
+          </div>
+          <div style="background:var(--bg-app); border:1px solid var(--border-subtle); border-radius:var(--radius-md); padding:12px;">
+            <div style="font-family:var(--font-mono); font-size:11px; margin-bottom:6px;"><span style="color:#f85149; font-weight:700;">DELETE</span> <span style="color:var(--text-secondary);">/api/v1/ioc/&lt;id&gt;</span></div>
+            <div style="font-size:11px; color:var(--text-muted);">Delete IOC by numeric ID. Requires admin key.</div>
+          </div>
+        </div>
+        <div style="background:var(--bg-app); border:1px solid var(--border-subtle); border-radius:var(--radius-md); padding:12px;">
+          <span style="font-size:11px; color:var(--text-muted); font-weight:600;">All endpoints require: </span>
+          <code style="font-family:var(--font-mono); font-size:12px; color:#3fb950;">X-API-Key: ti_your_key_here</code>
+        </div>
+      </div>
+    </div>
+
+    <!-- Audit Log -->
+    <div class="soc-card">
+      <div class="soc-card-header">
+        <div class="soc-card-header-title">
+          <svg class="soc-card-header-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line></svg>
+          Audit Log Trail <span style="margin-left:8px; font-size:11px; color:var(--text-muted); font-family:var(--font-mono);">(last 100, newest first)</span>
+        </div>
+      </div>
+      <div class="soc-card-body" style="max-height:420px; overflow-y:auto;">
+        {% if audit_lines %}
+          {% for line in audit_lines %}
+          <div class="audit-log-entry">{{ line.strip() }}</div>
+          {% endfor %}
+        {% else %}
+        <div style="color:var(--text-muted); font-size:12px; text-align:center; padding:28px; font-family:var(--font-mono);">No audit log entries found.</div>
+        {% endif %}
+      </div>
+    </div>
+
+  </div>
+</div>
+</body>
+</html>

@@ -42,6 +42,16 @@
                     <svg viewBox="0 0 24 24"><path d="M21 2v6h-6"></path><path d="M3 12a9 9 0 0 1 15-6.7L21 8"></path><path d="M3 22v-6h6"></path><path d="M21 12a9 9 0 0 1-15 6.7L3 16"></path></svg>
                     Sync Feeds
                 </a>
+                <a class="sidebar-link" onclick="openImportModal()" style="cursor:pointer;">
+                    <svg viewBox="0 0 24 24"><polyline points="16 16 12 12 8 16"></polyline><line x1="12" y1="12" x2="12" y2="21"></line><path d="M20.39 18.39A5 5 0 0 0 18 9h-1.26A8 8 0 1 0 3 16.3"></path></svg>
+                    Import IOCs
+                </a>
+                {% if current_user.role == 'admin' %}
+                <a href="/admin" class="sidebar-link">
+                    <svg viewBox="0 0 24 24"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path><circle cx="12" cy="7" r="4"></circle></svg>
+                    Admin Panel
+                </a>
+                {% endif %}
                 <a href="/logout" class="sidebar-link">
                     <svg viewBox="0 0 24 24"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path><polyline points="16 17 21 12 16 7"></polyline><line x1="21" y1="12" x2="9" y2="12"></line></svg>
                     Analyst Logout
@@ -438,6 +448,7 @@
 </div>
 
 <script>
+    // ── Donut Chart ───────────────────────────────────────────────────────────
     const canvas = document.getElementById('typeChart');
     const totalIps = parseInt(canvas.dataset.ips, 10) || 0;
     const totalDomains = parseInt(canvas.dataset.domains, 10) || 0;
@@ -480,7 +491,111 @@
             }
         }
     });
+
+    // ── Timeline Chart ────────────────────────────────────────────────────────
+    const tlCanvas = document.getElementById('timelineChart');
+    if (tlCanvas) {
+        const tlLabels = JSON.parse(tlCanvas.dataset.labels || '[]');
+        const tlValues = JSON.parse(tlCanvas.dataset.values || '[]');
+        new Chart(tlCanvas.getContext('2d'), {
+            type: 'line',
+            data: {
+                labels: tlLabels,
+                datasets: [{
+                    label: 'IOCs Added',
+                    data: tlValues,
+                    borderColor: '#58a6ff',
+                    backgroundColor: 'rgba(88,166,255,0.08)',
+                    borderWidth: 2,
+                    fill: true,
+                    tension: 0.4,
+                    pointBackgroundColor: '#58a6ff',
+                    pointBorderColor: '#0d1117',
+                    pointBorderWidth: 2,
+                    pointRadius: 4,
+                    pointHoverRadius: 7
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                scales: {
+                    x: {
+                        grid: { color: 'rgba(255,255,255,0.04)', drawBorder: false },
+                        ticks: { color: '#8b949e', font: { size: 10 }, maxTicksLimit: 10 }
+                    },
+                    y: {
+                        grid: { color: 'rgba(255,255,255,0.04)', drawBorder: false },
+                        ticks: { color: '#8b949e', font: { size: 10 }, stepSize: 1, precision: 0 },
+                        beginAtZero: true
+                    }
+                },
+                plugins: {
+                    legend: { display: false },
+                    tooltip: {
+                        backgroundColor: '#161b22',
+                        borderColor: '#30363d',
+                        borderWidth: 1,
+                        titleColor: '#f0f6fc',
+                        bodyColor: '#8b949e',
+                        callbacks: {
+                            label: ctx => ` ${ctx.parsed.y} indicator${ctx.parsed.y !== 1 ? 's' : ''} added`
+                        }
+                    }
+                }
+            }
+        });
+    }
+
+    // ── Bulk Import Modal ────────────────────────────────────────────────────
+    function openImportModal() {
+        document.getElementById('importModal').classList.add('active');
+        document.body.style.overflow = 'hidden';
+    }
+    function closeImportModal() {
+        document.getElementById('importModal').classList.remove('active');
+        document.body.style.overflow = '';
+    }
+    document.addEventListener('keydown', e => {
+        if (e.key === 'Escape') closeImportModal();
+    });
 </script>
+
+<!-- Bulk Import Modal -->
+<div class="import-modal-overlay" id="importModal" onclick="if(event.target===this)closeImportModal()">
+    <div class="import-modal-card">
+        <div class="import-modal-header">
+            <div class="import-modal-title">
+                <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" style="margin-right:8px;"><polyline points="16 16 12 12 8 16"></polyline><line x1="12" y1="12" x2="12" y2="21"></line><path d="M20.39 18.39A5 5 0 0 0 18 9h-1.26A8 8 0 1 0 3 16.3"></path></svg>
+                Bulk IOC Import
+            </div>
+            <button class="import-modal-close" onclick="closeImportModal()" title="Close">&times;</button>
+        </div>
+        <div class="import-modal-body">
+            <p style="font-size:12px; color:var(--text-secondary); margin-bottom:16px; line-height:1.7;">
+                Upload a <code style="color:var(--accent-blue);">.txt</code> or <code style="color:var(--accent-blue);">.csv</code> file, or paste IOCs directly below (one per line). 
+                Auto-detects IP, Domain, and Hash types. CSV format: <code style="color:var(--text-muted);">indicator, type, category, risk_score</code>
+            </p>
+            <form method="POST" action="/import" enctype="multipart/form-data">
+                <div class="form-group" style="margin-bottom:14px;">
+                    <label class="form-label">Upload File (.txt / .csv)</label>
+                    <input type="file" name="ioc_file" class="form-control" accept=".txt,.csv" id="iocFileInput">
+                </div>
+                <div class="import-or-divider">— or paste directly —</div>
+                <div class="form-group" style="margin-bottom:16px;">
+                    <label class="form-label">Paste IOCs (one per line or CSV rows)</label>
+                    <textarea name="ioc_text" class="form-control" id="iocTextarea" rows="9"
+                        placeholder="185.220.101.1&#10;evil-domain.com&#10;a3b4c5d6... (hash)&#10;&#10;Or CSV rows:&#10;10.0.0.1,IP,Botnet,85&#10;phish.xyz,Domain,Phishing,70"
+                        style="resize:vertical; font-family:var(--font-mono); font-size:11.5px;"></textarea>
+                </div>
+                <div style="display:flex; justify-content:space-between; align-items:center; gap:12px;">
+                    <div id="importLineCount" style="font-size:11px; color:var(--text-muted); font-family:var(--font-mono);">0 lines</div>
+                    <button type="submit" class="btn-cyber-primary" style="min-width:140px;">Import IOCs</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
 
 </body>
 </html>
