@@ -7,10 +7,11 @@
 ![AbuseIPDB](https://img.shields.io/badge/API-AbuseIPDB-orange?style=flat-square)
 ![VirusTotal](https://img.shields.io/badge/API-VirusTotal-394EFF?style=flat-square)
 ![AlienVault OTX](https://img.shields.io/badge/API-AlienVault%20OTX-blue?style=flat-square)
+![REST API](https://img.shields.io/badge/REST-API%20v1-brightgreen?style=flat-square)
 ![Status](https://img.shields.io/badge/Status-Active-00ff88?style=flat-square)
 ![Type](https://img.shields.io/badge/Type-Threat%20Intel%20%2F%20OSINT-red?style=flat-square)
 
-*A Python-based threat intelligence platform that aggregates IOCs, queries live reputation APIs, and provides a web dashboard for searching, adding, managing, and exporting threat indicators — built for SOC analyst workflows.*
+*A Python-based threat intelligence platform that aggregates IOCs, queries live reputation APIs, provides a REST API, and delivers a full-featured web dashboard for SOC analyst workflows — including bulk import, admin controls, and audit logging.*
 
 ---
 
@@ -49,36 +50,68 @@ AbuseIPDB Lookup    VirusTotal Lookup     AlienVault OTX Lookup
                           ▼
             Display unified intelligence report
                           │
-                          ▼
-            Export ──► Download full IOC list as CSV
+                 ┌────────┴────────┐
+                 ▼                 ▼
+         Export to CSV      REST API v1
+         (authenticated)    (API key auth)
 ```
 
-All IOCs are stored with a type, category, and risk score. The dashboard shows live statistics and lets authenticated analysts add, search, edit, delete, or export indicators.
+All IOCs are stored with a type, category, risk score, and creation timestamp. The dashboard shows live statistics, a 30-day activity timeline, and lets authenticated analysts add, search, bulk-import, edit, delete, or export indicators.
 
 ---
 
-## 🔒 Security & Access Control Features
+## 📊 Dashboard Features
 
-We have upgraded ThreatIntel to include enterprise-grade security and access controls:
+| Feature | Description |
+|---|---|
+| **Live Statistics** | Total IOC count, breakdown by IP / Domain / Hash with ratios |
+| **IOC Activity Timeline** | Chart.js line graph — indicators added per day over last 30 days |
+| **IOC Type Donut Chart** | Live breakdown of IP / Domain / Hash distribution |
+| **Triple-Source Enrichment** | AbuseIPDB + VirusTotal + AlienVault OTX results in one report |
+| **Smart IOC Search** | Auto-detects IP / Domain / Hash format, queries the right API |
+| **Bulk IOC Import** | Paste or upload `.txt`/`.csv` — auto-detects types, skips duplicates |
+| **Add / Edit / Delete** | Full CRUD on indicators (requires login) |
+| **Export to CSV** | Download full IOC list as `.csv` (requires login) |
+| **Auto Feed Sync** | Background sync from Feodo Tracker & URLhaus every 6 hours |
+| **Manual Feed Sync** | Trigger OSINT feed sync manually from the sidebar |
+| **Analyst Authentication** | Login / register portals with session management |
+| **Admin Control Panel** | User management, API key lifecycle, audit log viewer |
 
-### 🔑 1. Analyst Access Portal (Authentication)
-*   **Flask-Login**: The dashboard operates in a **guest/read-only** mode by default. Forms to add threats, edit entries, delete IOCs, or download CSV logs are hidden/disabled until an analyst logs in.
-*   **Role-Based Security**: Credentials are encrypted and hashed inside the database using Werkzeug's secure hashing algorithm (`pbkdf2:sha256` or `scrypt`).
-*   **Seeded Admin Account**: Comes pre-configured with a default analyst login (`admin` / `admin123`) created by running `init_db.py`.
+---
+
+## 🔒 Security & Access Control
+
+### 🔑 1. Role-Based Access Control (RBAC)
+- **Guest / Read-Only** mode by default — add/edit/delete forms are hidden until login
+- Two roles: `admin` and `analyst`
+- Admins get access to `/admin` panel, API key management, and user controls
+- `admin_required` decorator enforces role checks on all admin routes
 
 ### 📋 2. Real-Time Audit Log Trail (`audit.log`)
-*   Every administrative transaction is recorded to a local audit log file for SOC accountability, documenting:
-    *   User Logins & Logouts
-    *   Threat additions, modifications, and deletions
-    *   CSV export file downloads
-*   *Example log line:*
-    `[2026-07-02 07:45:12 UTC] User: admin | Action: ADD_THREAT | Indicator: 185.220.101.1`
+Every administrative action is recorded for SOC accountability:
+- User logins & logouts
+- Threat additions, edits, and deletions
+- Bulk imports with counts
+- CSV exports
+- API key generation & revocation
+- Admin user promote / demote / delete actions
 
-### 🛡️ 3. Safe Database Connection Lifecycle
-*   Avoids connection lockups and descriptor leaks by binding database connections directly to the Flask request pipeline context (`flask.g` and `@app.teardown_appcontext`).
+```
+[2026-08-01 19:26:26 UTC] User: admin | Action: USER_LOGIN
+[2026-08-01 19:26:41 UTC] User: admin | Action: BULK_IMPORT | Added 12 (IP:8 Domain:4 Hash:0) Skipped:2
+[2026-08-01 19:28:00 UTC] User: admin | Action: GENERATE_API_KEY | name: SIEM Integration
+```
 
-### 🧼 4. Input Sanitization (XSS Mitigation)
-*   Replaced custom regex tag-stripping with safe HTML escaping (`html.escape`), neutralizing malicious scripts entered in IOC category or indicator forms.
+### 🛡️ 3. Input Sanitization (XSS Mitigation)
+- HTML escaping via `html.escape()` on all user-submitted indicator values and categories
+
+### 🔒 4. Safe Database Connection Lifecycle
+- Thread-safe connections bound to Flask request context (`flask.g` + `@app.teardown_appcontext`)
+
+### ⏱️ 5. Rate Limiting
+- Global: `100 requests / hour` per IP
+- Login & Register: `5 requests / minute` (brute-force protection)
+- Dashboard: `30 requests / minute`
 
 ---
 
@@ -90,16 +123,106 @@ We have upgraded ThreatIntel to include enterprise-grade security and access con
 | **VirusTotal** | IP, Domain, Hash | Malicious/suspicious counts, total antivirus engine ratings |
 | **AlienVault OTX** | IP, Domain, Hash | Total threat pulse counts, names, descriptions, and creation dates |
 
-*Note: OTX lookups run out-of-the-box and do not require an API key.*
+> OTX lookups run out-of-the-box and do not require an API key.
+
+All three API calls are dispatched **in parallel** using `ThreadPoolExecutor` for fast enrichment.
 
 ---
 
-## 🧩 IOC Format Auto-Detection (Regex Patterns)
+## 🌐 REST API v1
 
-When an analyst searches under the "All" type, ThreatIntel automatically parses the indicator format to run the correct query dispatches:
-*   **IP Address**: Matches IPv4 or standard IPv6 formats.
-*   **File Hash**: Identifies MD5 (32 hex characters), SHA-1 (40 characters), or SHA-256 (64 characters) hash structures.
-*   **Domain**: Standard URL domain parsing (e.g. `domain.com`).
+The platform exposes a programmatic REST API for integration with SIEMs, scripts, and other security tooling. All endpoints require an `X-API-Key` header (generated from the Admin Panel).
+
+### Endpoints
+
+| Method | Endpoint | Auth | Description |
+|--------|----------|------|-------------|
+| `GET` | `/api/v1/iocs` | Any key | List all IOCs with optional filters |
+| `GET` | `/api/v1/ioc/<indicator>` | Any key | Look up a single IOC by value |
+| `POST` | `/api/v1/ioc` | Any key | Create a new IOC |
+| `DELETE` | `/api/v1/ioc/<id>` | Admin key only | Delete an IOC by ID |
+
+### Usage Examples
+
+```bash
+# List all IP indicators (page 1, 50 per page)
+curl http://localhost:5000/api/v1/iocs?type=IP&page=1 \
+  -H "X-API-Key: ti_your_key_here"
+
+# Look up a specific indicator
+curl http://localhost:5000/api/v1/ioc/185.220.101.1 \
+  -H "X-API-Key: ti_your_key_here"
+
+# Add a new IOC via JSON
+curl -X POST http://localhost:5000/api/v1/ioc \
+  -H "X-API-Key: ti_your_key_here" \
+  -H "Content-Type: application/json" \
+  -d '{"indicator": "evil.com", "type": "Domain", "category": "Phishing", "risk_score": 80}'
+
+# Delete an IOC (admin key required)
+curl -X DELETE http://localhost:5000/api/v1/ioc/42 \
+  -H "X-API-Key: ti_admin_key_here"
+```
+
+### Sample Response
+
+```json
+GET /api/v1/ioc/185.220.101.1
+
+{
+  "status": 200,
+  "found": true,
+  "ioc": {
+    "id": 14,
+    "indicator": "185.220.101.1",
+    "type": "IP",
+    "category": "Feodo Botnet IP",
+    "risk_score": 85,
+    "created_at": "2026-08-01 14:32:00"
+  }
+}
+```
+
+---
+
+## 📋 Bulk IOC Import
+
+Analysts can import hundreds of IOCs at once instead of adding them one by one:
+
+- Click **"Import IOCs"** in the sidebar (requires login)
+- **Paste** raw IOCs — one per line, or CSV format
+- **Upload** a `.txt` or `.csv` file
+- Auto-detects IP / Domain / Hash type per line
+- Skips duplicates and counts unrecognised entries
+- Returns a detailed import summary:
+
+```
+Import complete! Added 47 indicators (32 IPs, 12 Domains, 3 Hashes). Skipped 5 duplicates, 0 unrecognised.
+```
+
+**Supported formats:**
+```
+# Plain list (type auto-detected)
+185.220.101.1
+evil-phishing.com
+a3f4b2c1d5e6...
+
+# CSV (indicator, type, category, risk_score)
+10.0.0.1,IP,Botnet C2,85
+phish.xyz,Domain,Phishing,70
+```
+
+---
+
+## 🧩 IOC Format Auto-Detection
+
+ThreatIntel automatically parses the indicator format using regex:
+
+| Format | Detection Rule |
+|--------|---------------|
+| **IP Address** | IPv4 `(\d{1,3}\.){3}\d{1,3}` or IPv6 (contains `:`) |
+| **File Hash** | MD5 (32 hex), SHA-1 (40 hex), SHA-256 (64 hex) |
+| **Domain** | `[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}` |
 
 ---
 
@@ -112,11 +235,14 @@ git clone https://github.com/SHAROZ221/ThreatIntel.git
 cd ThreatIntel
 ```
 
-**2. Install dependencies**
+**2. Create a virtual environment & install dependencies**
 
 ```bash
+python -m venv .venv
+.venv\Scripts\activate        # Windows
+# source .venv/bin/activate   # Linux / macOS
+
 pip install -r Requirements.txt
-pip install flask-login pytest
 ```
 
 **3. Set up your API keys**
@@ -135,53 +261,58 @@ Get free API keys at:
 
 **4. Initialise the database & seed admin**
 
-This creates the tables and seeds your default analyst account (`admin` / `admin123`):
-
 ```bash
 python init_db.py
 ```
 
-**5. (Optional) Seed sample threat data**
+Creates all tables and seeds the default admin account (`admin` / `admin123`).
+
+**5. (Existing installs only) Run the migration**
+
+If you have an existing `threats.db`, run the one-time migration to add new columns:
+
+```bash
+python migrate.py
+```
+
+**6. (Optional) Seed sample threat data**
 
 ```bash
 python seed_data.py
 ```
 
-**6. Run the app**
+**7. Run the app**
 
 ```bash
 python app.py
 ```
 
-**7. Run the test suite**
-
-Ensure all authentication, session routing, and CSV export tests pass successfully:
+**8. Run the test suite**
 
 ```bash
 python -m pytest test.py
 ```
 
-**8. Open the dashboard**
+**9. Open the dashboard**
 
 ```
 http://localhost:5000/
 ```
 
+**Default admin login:** `admin` / `admin123`
+
 ---
 
-## 📊 Dashboard Features
+## 🔑 Admin Panel
 
-The web dashboard provides:
+Access the admin control panel at `http://localhost:5000/admin` (admin role required).
 
-- **Live statistics** — total IOC count, breakdown by IP / Domain / Hash
-- **Triple-source IOC enrichment** — AbuseIPDB + VirusTotal + AlienVault OTX results displayed side by side
-- **Smart IOC search** — auto-detects formats and queries the right API
-- **Analyst authentication** — login and register portals
-- **Add new threats** — submit indicator, type, category, and risk score (requires login)
-- **Edit/Delete indicators** — modify or remove registry entries (requires login)
-- **Recent threats table** — full IOC list ordered by most recently added
-- **IOC type chart** — donut chart showing live breakdown of IP / Domain / Hash counts
-- **Export to CSV** — download the full IOC list as a `.csv` file with one click (requires login)
+| Section | What You Can Do |
+|---------|-----------------|
+| **User Management** | View all analysts, promote to admin, demote to analyst, delete accounts |
+| **API Key Management** | Generate named API keys per user, revoke keys instantly |
+| **REST API Reference** | All 4 endpoints documented inline with example usage |
+| **Audit Log Viewer** | Last 100 audit entries displayed newest-first in the browser |
 
 ---
 
@@ -189,43 +320,62 @@ The web dashboard provides:
 
 ```
 ThreatIntel/
-├── app.py           → Flask web server, routes, database contexts, and API clients
-├── init_db.py       → Creates database tables & seeds admin user (admin/admin123)
-├── seed_data.py     → Populates DB with sample IOCs for testing
-├── view_data.py     → CLI utility to inspect database contents
-├── test.py          → Test suite covering login flows and authenticated exports
+├── app.py            → Flask server: routes, API clients, admin, REST API v1
+├── init_db.py        → Creates all tables & seeds admin account (admin/admin123)
+├── migrate.py        → One-time DB migration for existing installs (adds created_at, api_keys)
+├── seed_data.py      → Populates DB with sample IOCs for testing
+├── view_data.py      → CLI utility to inspect database contents
+├── test.py           → Test suite covering login flows and authenticated exports
 ├── templates/
-│   ├── index.html   → Main web dashboard UI (OTX pulses, charts, forms)
-│   ├── login.html   → Sleek analyst login interface
-│   ├── register.html → SOC analyst registration portal
-│   └── edit.html    → Edit IOC form
-├── threats.db       → SQLite IOC database (auto-generated)
-├── audit.log        → Logs all analyst modifications and logins (auto-generated)
-└── .env             → API keys (not committed — see .gitignore)
+│   ├── index.html    → Main dashboard (timeline chart, bulk import modal, enrichment)
+│   ├── admin.html    → Admin control panel (users, API keys, audit log)
+│   ├── login.html    → Analyst login portal
+│   ├── register.html → Analyst registration portal
+│   ├── edit.html     → Edit IOC form
+│   └── 429.html      → Rate limit error page
+├── static/css/
+│   └── style.css     → Dark GitHub-style design system + modal/admin styles
+├── threats.db        → SQLite IOC database (auto-generated)
+├── audit.log         → Audit trail (auto-generated)
+└── .env              → API keys (not committed — see .gitignore)
 ```
 
 ---
 
-## 🗄️ Database Schemas
+## 🗄️ Database Schema
 
-### threats table:
+### threats table
 ```sql
 CREATE TABLE threats (
     id          INTEGER PRIMARY KEY AUTOINCREMENT,
-    indicator   TEXT NOT NULL,      -- The IOC value (IP, domain, hash)
-    type        TEXT NOT NULL,      -- 'IP', 'Domain', or 'Hash'
-    category    TEXT NOT NULL,      -- e.g. 'Malware', 'Phishing', 'C2'
-    risk_score  INTEGER NOT NULL    -- 0–100 severity rating
+    indicator   TEXT NOT NULL,       -- The IOC value (IP, domain, hash)
+    type        TEXT NOT NULL,       -- 'IP', 'Domain', or 'Hash'
+    category    TEXT NOT NULL,       -- e.g. 'Malware', 'Phishing', 'C2'
+    risk_score  INTEGER NOT NULL,    -- 0–100 severity rating
+    created_at  DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 ```
 
-### users table:
+### users table
 ```sql
 CREATE TABLE users (
     id            INTEGER PRIMARY KEY AUTOINCREMENT,
     username      TEXT UNIQUE NOT NULL,
-    password_hash TEXT NOT NULL,      -- Encrypted credential hash
-    role          TEXT DEFAULT 'analyst' -- 'admin' or 'analyst'
+    password_hash TEXT NOT NULL,
+    role          TEXT DEFAULT 'analyst',  -- 'admin' or 'analyst'
+    created_at    DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+```
+
+### api_keys table
+```sql
+CREATE TABLE api_keys (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id     INTEGER NOT NULL,
+    key         TEXT UNIQUE NOT NULL,   -- Prefixed: ti_<uuid>
+    name        TEXT NOT NULL,          -- Label e.g. 'SIEM Integration'
+    created_at  DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
 );
 ```
 
@@ -233,14 +383,20 @@ CREATE TABLE users (
 
 ## 🧰 Built With
 
-- **Flask** — Web framework and routing
-- **Flask-Login** — Access control and session manager
-- **SQLite3** — Thread-safe local database
-- **AbuseIPDB API** — Live IP reputation, abuse score, reports, and country
-- **VirusTotal API** — Multi-engine malware detection for IPs, domains, and file hashes
-- **AlienVault OTX API** — Pulsed community threat indicators (IP, domain, hashes)
-- **python-dotenv** — Secure API key management via `.env`
-- **Chart.js** — Live donut chart on the dashboard
-- **HTML / CSS / JS** — Dashboard frontend with CSV export
+| Tool | Purpose |
+|------|---------|
+| **Flask** | Web framework and routing |
+| **Flask-Login** | Session management and access control |
+| **Flask-Limiter** | Rate limiting (brute-force protection) |
+| **APScheduler** | Background OSINT feed sync (every 6 hours) |
+| **SQLite3** | Thread-safe local IOC database |
+| **AbuseIPDB API** | Live IP reputation, abuse score, reports, country |
+| **VirusTotal API** | Multi-engine malware detection (IP, domain, hash) |
+| **AlienVault OTX API** | Community threat pulses (IP, domain, hash) |
+| **python-dotenv** | Secure `.env` API key management |
+| **Chart.js** | Donut chart + 30-day timeline chart |
+| **ThreadPoolExecutor** | Parallel API enrichment calls |
+| **Werkzeug** | Password hashing (`pbkdf2:sha256` / `scrypt`) |
+| **UUID** | Cryptographically unique REST API key generation |
 
 ---
